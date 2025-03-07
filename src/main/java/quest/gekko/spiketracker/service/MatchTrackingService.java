@@ -16,7 +16,9 @@ import java.util.Map;
 public class MatchTrackingService {
     private final VlrggMatchApiClient apiClient;
     private TextChannel discordChannel;
+    
     private final Map<String, MatchSegment> liveMatches = new HashMap<>();
+    private final Map<String, String> matchMessages = new HashMap<>(); // Tracks matchId -> messageId
 
     public MatchTrackingService(final VlrggMatchApiClient apiClient) {
         this.apiClient = apiClient;
@@ -32,53 +34,71 @@ public class MatchTrackingService {
             return;
 
         liveMatchData.getSegments().forEach(this::processMatchSegment);
-        removeCompletedMatches(liveMatchData);
+        updateCompletedMatches(liveMatchData);
     }
 
     private void processMatchSegment(final MatchSegment segment) {
         final String matchId = segment.getMatch_page();
+
+        // Update match data and its embed if it already exists.
         if (liveMatches.containsKey(matchId)) {
             liveMatches.put(matchId, segment);
+            updateMatchEmbed(segment, matchMessages.get(matchId), false);
             return;
         }
 
+        // Otherwise store match data and generate a fresh embed.
         liveMatches.put(matchId, segment);
-        sendMatchEmbed(segment, "Live Valorant Match");
+        sendMatchEmbed(segment);
     }
 
-    private void removeCompletedMatches(final LiveMatchData liveMatchData) {
+    private void sendMatchEmbed(final MatchSegment segment) {
+        final MessageEmbed embed = createMatchEmbed(segment, false);
+
+        discordChannel.sendMessageEmbeds(embed).queue(message ->
+                matchMessages.put(segment.getMatch_page(), message.getId()) // Store message id to update later.
+        );
+    }
+
+    private void updateMatchEmbed(final MatchSegment segment, final String messageId, boolean isCompleted) {
+        if (messageId == null)
+            return; // No message to update
+
+        final MessageEmbed updatedEmbed = createMatchEmbed(segment, isCompleted);
+        discordChannel.editMessageEmbedsById(messageId, updatedEmbed).queue();
+    }
+
+    private void updateCompletedMatches(final LiveMatchData liveMatchData) {
         liveMatches.entrySet().removeIf(entry -> {
             final String matchId = entry.getKey();
-            boolean isMatchCompleted = liveMatchData.getSegments().stream().noneMatch(segment -> segment.getMatch_page().equals(matchId));
+            final boolean isMatchFinished = liveMatchData.getSegments().stream().noneMatch(segment -> segment.getMatch_page().equals(matchId));
 
-            if (isMatchCompleted) {
-                sendMatchEmbed(entry.getValue(), "Completed Valorant Match");
+            if (isMatchFinished) {
+                updateMatchEmbed(entry.getValue(), matchMessages.get(matchId), true);
+                matchMessages.remove(matchId); // Remove match data from memory as it's no longer necessary to track.
                 return true;
             }
             return false;
         });
     }
 
-    private void sendMatchEmbed(final MatchSegment segment, final String title) {
-        final MessageEmbed messageEmbed = new EmbedBuilder()
-                .setTitle(title)
+    private MessageEmbed createMatchEmbed(final MatchSegment segment, boolean isCompleted) {
+        EmbedBuilder embedBuilder = new EmbedBuilder()
+                .setTitle(isCompleted ? "Completed Valorant Match" : "Live Valorant Match")
                 .setDescription(formatMatchDescription(segment))
-                .addField("🏆 Event", "**" + segment.getMatch_event() + "**\n\u200B", false)
-                .addField("🎮 Series", "**" + segment.getMatch_series() + "**", false)
-                .setColor(Color.RED)
-                .setFooter("Live match updates", null)
-                .build();
+                .addField("Event", "**" + segment.getMatch_event() + "**\n\u200B", false)
+                .addField("Series", "**" + segment.getMatch_series() + "**\n\u200B", false)
+                .addField("Score", "**" + segment.getScore1() + " - " + segment.getScore2() + "**", false)
+                .setColor(isCompleted ? Color.GRAY : Color.RED)
+                .setFooter(isCompleted ? "Match completed" : "Live match updates", null);
 
-        discordChannel.sendMessageEmbeds(messageEmbed).queue();
+        return embedBuilder.build();
     }
 
     private String formatMatchDescription(final MatchSegment segment) {
-        return String.format(":%s: **%s** vs :%s: **%s**\n\u200B",
-                segment.getFlag1(),
-                segment.getTeam1(),
-                segment.getFlag2(),
-                segment.getTeam2()
-        );
+        return String.format("%s %s **vs** %s %s\n\u200B",
+                ":" + segment.getFlag1() + ":", segment.getTeam1(),
+                segment.getTeam2(), ":" + segment.getFlag2() + ":");
     }
 
     public void setChannel(final TextChannel discordChannel) {

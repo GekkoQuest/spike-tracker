@@ -18,7 +18,7 @@ public class DiscordBot extends ListenerAdapter {
     private String token;
     private final MatchTrackingService matchTrackingService;
 
-    public DiscordBot(MatchTrackingService matchTrackingService) {
+    public DiscordBot(final MatchTrackingService matchTrackingService) {
         this.matchTrackingService = matchTrackingService;
     }
 

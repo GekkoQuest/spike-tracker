@@ -4,9 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
-@ConfigurationProperties(prefix = "vlrgg.api")
-@Configuration
 @Data
+@Configuration
+@ConfigurationProperties(prefix = "vlrgg.api")
 public class VlrggApiProperties {
     private String baseUrl;
 }

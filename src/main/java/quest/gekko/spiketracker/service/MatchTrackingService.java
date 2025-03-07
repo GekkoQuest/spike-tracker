@@ -1,5 +1,6 @@
 package quest.gekko.spiketracker.service;
 
+import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
@@ -12,6 +13,7 @@ import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class MatchTrackingService {
     private final VlrggMatchApiClient apiClient;
@@ -27,6 +29,7 @@ public class MatchTrackingService {
     @Scheduled(fixedRate = 5000) // Check for updates every 5 seconds
     public void fetchLiveMatchData() {
         if (discordChannel == null) {
+            log.warn("Live match tracking is disabled until a Discord channel is set.");
             return;
         }
 
@@ -47,7 +50,7 @@ public class MatchTrackingService {
 
             // Only update if score has changed. Helps prevent 429 rate limit error as well.
             if (hasScoreChanged(previousSegment, segment)) {
-                System.out.println("Updated!");
+                log.info("Updating match: {}", matchId);
                 liveMatches.put(matchId, segment);
                 updateMatchEmbed(segment, matchMessages.get(matchId), false);
             }
@@ -56,6 +59,7 @@ public class MatchTrackingService {
         }
 
         // Otherwise store match data and generate a fresh embed.
+        log.info("New match detected: {}", matchId);
         liveMatches.put(matchId, segment);
         sendMatchEmbed(segment);
     }
@@ -74,9 +78,8 @@ public class MatchTrackingService {
     }
 
     private void updateMatchEmbed(final MatchSegment segment, final String messageId, boolean isCompleted) {
-        if (messageId == null) {
+        if (messageId == null)
             return; // No message to update
-        }
 
         final MessageEmbed updatedEmbed = createMatchEmbed(segment, isCompleted);
         discordChannel.editMessageEmbedsById(messageId, updatedEmbed).queue();
@@ -117,5 +120,6 @@ public class MatchTrackingService {
 
     public void setChannel(final TextChannel discordChannel) {
         this.discordChannel = discordChannel;
+        log.info("Discord channel set to '{}'", discordChannel.getName());
     }
 }

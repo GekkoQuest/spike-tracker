@@ -30,8 +30,9 @@ public class DiscordBot extends ListenerAdapter {
                     .enableIntents(GatewayIntent.MESSAGE_CONTENT)
                     .build()
                     .awaitReady();
+            log.info("Discord bot started successfully.");
         } catch (InterruptedException e) {
-            log.error("Error starting the bot", e);
+            log.error("An error has occurred while starting the Discord bot.", e);
             throw new RuntimeException(e);
         }
     }
@@ -40,9 +41,9 @@ public class DiscordBot extends ListenerAdapter {
     public void onMessageReceived(final MessageReceivedEvent event) {
         final String content = event.getMessage().getContentRaw();
 
-        if (!content.equalsIgnoreCase("#setchannel")) {
+        if (!content.equalsIgnoreCase("#setchannel"))
             return;
-        }
+
 
         if (event.getChannel() instanceof TextChannel targetChannel) {
             matchTrackingService.setChannel(targetChannel);

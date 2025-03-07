@@ -25,31 +25,27 @@ public class VlrggMatchApiClient {
     }
 
     public LiveMatchData getLiveMatchData() {
+        final String url = apiProperties.getBaseUrl() + "/match?q=live_score";
+
         final VlrggApiResponse apiResponse = executeWithRetry(() -> {
-            final String url = apiProperties.getBaseUrl() + "/match?q=live_score";
+            log.debug("Fetching live match data from: {}", url);
             final ResponseEntity<VlrggApiResponse> response = restTemplate.getForEntity(url, VlrggApiResponse.class);
-            log.debug("Deserialized API Response: {}", response.getBody());
-            return response.getBody();
+            return response.getBody() !=  null ? response.getBody() : null;
         });
 
         return apiResponse != null ? apiResponse.getData() : null;
     }
 
     private <T> T executeWithRetry(final Supplier<T> apiCall) {
-        int retryCount = 0;
-
-        while (retryCount < MAX_RETRIES) {
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
                 return apiCall.get();
-            } catch (RestClientException e) {
-                retryCount++;
-                log.error("API call failed, retry {} of {}", retryCount, MAX_RETRIES, e);
-                if (retryCount == MAX_RETRIES) {
-                    log.error("Max retries reached, giving up.");
-                    return null;
-                }
+            } catch (final RestClientException e) {
+                log.warn("Retry attempt #{}: {}", attempt, e.getMessage());
             }
         }
-        return null;
+
+        log.error("API call failed after {} attempts.", MAX_RETRIES);
+        return  null;
     }
 }

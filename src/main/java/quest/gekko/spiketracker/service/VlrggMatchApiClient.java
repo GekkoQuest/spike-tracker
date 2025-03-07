@@ -19,13 +19,13 @@ public class VlrggMatchApiClient {
 
     private static final int MAX_RETRIES = 3;
 
-    public VlrggMatchApiClient(RestTemplate restTemplate, VlrggApiProperties apiProperties) {
+    public VlrggMatchApiClient(final RestTemplate restTemplate, final VlrggApiProperties apiProperties) {
         this.restTemplate = restTemplate;
         this.apiProperties = apiProperties;
     }
 
     public LiveMatchData getLiveMatchData() {
-        VlrggApiResponse apiResponse = executeWithRetry(() -> {
+        final VlrggApiResponse apiResponse = executeWithRetry(() -> {
             final String url = apiProperties.getBaseUrl() + "/match?q=live_score";
             final ResponseEntity<VlrggApiResponse> response = restTemplate.getForEntity(url, VlrggApiResponse.class);
             log.debug("Deserialized API Response: {}", response.getBody());
@@ -34,7 +34,7 @@ public class VlrggMatchApiClient {
         return apiResponse != null ? apiResponse.getData() : null;
     }
 
-    private <T> T executeWithRetry(Supplier<T> apiCall) {
+    private <T> T executeWithRetry(final Supplier<T> apiCall) {
         int retryCount = 0;
 
         while (retryCount < MAX_RETRIES) {

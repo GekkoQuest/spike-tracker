@@ -2,6 +2,8 @@ package quest.gekko.spiketracker.model.match;
 
 import lombok.Data;
 
+// Reference: https://vlrggapi.vercel.app/#/default/VLR_match_match_get
+
 @Data
 public class MatchSegment {
     private String team1;

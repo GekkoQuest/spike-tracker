@@ -16,7 +16,7 @@ import java.util.Map;
 public class MatchTrackingService {
     private final VlrggMatchApiClient apiClient;
     private TextChannel discordChannel;
-    
+
     private final Map<String, MatchSegment> liveMatches = new HashMap<>();
     private final Map<String, String> matchMessages = new HashMap<>(); // Tracks matchId -> messageId
 
@@ -24,10 +24,11 @@ public class MatchTrackingService {
         this.apiClient = apiClient;
     }
 
-    @Scheduled(fixedRate = 3000) // Update every 3 seconds
+    @Scheduled(fixedRate = 5000) // Check for updates every 5 seconds
     public void fetchLiveMatchData() {
-        if (discordChannel == null)
+        if (discordChannel == null) {
             return;
+        }
 
         final LiveMatchData liveMatchData = apiClient.getLiveMatchData();
         if (liveMatchData == null || liveMatchData.getSegments() == null)
@@ -42,14 +43,26 @@ public class MatchTrackingService {
 
         // Update match data and its embed if it already exists.
         if (liveMatches.containsKey(matchId)) {
-            liveMatches.put(matchId, segment);
-            updateMatchEmbed(segment, matchMessages.get(matchId), false);
+            final MatchSegment previousSegment = liveMatches.get(matchId);
+
+            // Only update if score has changed. Helps prevent 429 rate limit error as well.
+            if (hasScoreChanged(previousSegment, segment)) {
+                System.out.println("Updated!");
+                liveMatches.put(matchId, segment);
+                updateMatchEmbed(segment, matchMessages.get(matchId), false);
+            }
+
             return;
         }
 
         // Otherwise store match data and generate a fresh embed.
         liveMatches.put(matchId, segment);
         sendMatchEmbed(segment);
+    }
+
+    private boolean hasScoreChanged(final MatchSegment previousSegment, final MatchSegment newSegment) {
+        return !previousSegment.getScore1().equals(newSegment.getScore1()) ||
+                !previousSegment.getScore2().equals(newSegment.getScore2());
     }
 
     private void sendMatchEmbed(final MatchSegment segment) {
@@ -61,8 +74,9 @@ public class MatchTrackingService {
     }
 
     private void updateMatchEmbed(final MatchSegment segment, final String messageId, boolean isCompleted) {
-        if (messageId == null)
+        if (messageId == null) {
             return; // No message to update
+        }
 
         final MessageEmbed updatedEmbed = createMatchEmbed(segment, isCompleted);
         discordChannel.editMessageEmbedsById(messageId, updatedEmbed).queue();
@@ -83,7 +97,7 @@ public class MatchTrackingService {
     }
 
     private MessageEmbed createMatchEmbed(final MatchSegment segment, boolean isCompleted) {
-        EmbedBuilder embedBuilder = new EmbedBuilder()
+        final EmbedBuilder embedBuilder = new EmbedBuilder()
                 .setTitle(isCompleted ? "Completed Valorant Match" : "Live Valorant Match")
                 .setDescription(formatMatchDescription(segment))
                 .addField("Event", "**" + segment.getMatch_event() + "**\n\u200B", false)

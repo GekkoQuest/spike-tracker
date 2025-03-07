@@ -40,13 +40,15 @@ public class DiscordBot extends ListenerAdapter {
     public void onMessageReceived(final MessageReceivedEvent event) {
         final String content = event.getMessage().getContentRaw();
 
-        if (content.equalsIgnoreCase("#setchannel")) {
-            if (event.getChannel() instanceof TextChannel targetChannel) {
-                matchTrackingService.setChannel(targetChannel);
-                event.getChannel().sendMessage("Updates will now be posted in this channel.").queue();
-            } else {
-                event.getChannel().sendMessage("This command can only be used in a text channel.").queue();
-            }
+        if (!content.equalsIgnoreCase("#setchannel")) {
+            return;
+        }
+
+        if (event.getChannel() instanceof TextChannel targetChannel) {
+            matchTrackingService.setChannel(targetChannel);
+            event.getChannel().sendMessage("Updates will now be posted in this channel.").queue();
+        } else {
+            event.getChannel().sendMessage("This command can only be used in a text channel.").queue();
         }
     }
 }

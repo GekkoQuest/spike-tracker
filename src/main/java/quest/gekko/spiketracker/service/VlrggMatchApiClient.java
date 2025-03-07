@@ -31,6 +31,7 @@ public class VlrggMatchApiClient {
             log.debug("Deserialized API Response: {}", response.getBody());
             return response.getBody();
         });
+
         return apiResponse != null ? apiResponse.getData() : null;
     }
 

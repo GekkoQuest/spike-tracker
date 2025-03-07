@@ -32,4 +32,5 @@ You can do so by doing the following command in the channel of your choice:
 - Add player stats to showcase at the end of match.
 - Ability to fetch previous/older match data.
 - Add configuration options for Discord messages.
+- Make all Discord messages embeded rather than plain messages.
 - Implement more Discord commands with permissions checking.

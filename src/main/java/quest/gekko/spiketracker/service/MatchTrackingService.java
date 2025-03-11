@@ -26,9 +26,10 @@ public class MatchTrackingService {
 
     @Getter
     private final Map<String, MatchSegment> liveMatches = new HashMap<>();
-    private final Map<String, String> matchMessages = new HashMap<>(); // Tracks matchId -> messageId
+
     @Getter
     private final Map<String, String> matchStreamLinks = new HashMap<>(); // Tracks matchId -> stream link
+    private final Map<String, String> matchMessages = new HashMap<>(); // Tracks matchId -> messageId
 
     public MatchTrackingService(final VlrggMatchApiClient apiClient) {
         this.apiClient = apiClient;
@@ -56,7 +57,7 @@ public class MatchTrackingService {
         if (liveMatches.containsKey(matchId)) {
             final MatchSegment previousSegment = liveMatches.get(matchId);
 
-            // Only update if score has changed. Helps prevent 429 rate limit error as well.
+            // Only update if score has changed. Helps prevent Discord's 429 rate limit error as well.
             if (hasScoreChanged(previousSegment, segment)) {
                 log.info("Updating match: {}", matchId);
                 liveMatches.put(matchId, segment);
@@ -72,59 +73,16 @@ public class MatchTrackingService {
 
         final String streamLink = scrapeStreamLink(segment.getMatch_page());
         if (streamLink != null) {
-            segment.setStreamLink(streamLink); // Set the stream link in the MatchSegment object
+            segment.setStreamLink(streamLink);
             matchStreamLinks.put(segment.getMatch_page(), streamLink);
         }
 
         sendMatchEmbed(segment);
     }
 
-    private String scrapeStreamLink(final String matchUrl) {
-        try {
-            // Get HTML content of webpage.
-            final Document document = Jsoup.connect(matchUrl).get();
-
-            // Locate where stream links are being stored.
-            final Element streamContainer = document.selectFirst("div.match-streams-container");
-
-            if (streamContainer != null) {
-                // Find the first available stream link.
-                final Element streamLinkElement = streamContainer.selectFirst("a[href]");
-
-                if (streamLinkElement != null) {
-                    final String streamLink = streamLinkElement.attr("href");
-                    log.info("Scraped stream link for match {}: {}", matchUrl, streamLink); // Debugging log
-                    return streamLink;
-                }
-            }
-        } catch (final IOException e) {
-            log.error("Failed to scrape stream link for match: {}", matchUrl, e);
-        }
-
-        // Should rarely, if ever, happen. Generally VLR matches contain a stream link.
-        log.warn("No stream link found for match: {}", matchUrl);
-        return null;
-    }
-
     private boolean hasScoreChanged(final MatchSegment previousSegment, final MatchSegment newSegment) {
         return !previousSegment.getScore1().equals(newSegment.getScore1()) ||
                 !previousSegment.getScore2().equals(newSegment.getScore2());
-    }
-
-    private void sendMatchEmbed(final MatchSegment segment) {
-        final MessageEmbed embed = createMatchEmbed(segment, false);
-
-        discordChannel.sendMessageEmbeds(embed).queue(message ->
-                matchMessages.put(segment.getMatch_page(), message.getId()) // Store message id to update later.
-        );
-    }
-
-    private void updateMatchEmbed(final MatchSegment segment, final String messageId, boolean isCompleted) {
-        if (messageId == null)
-            return; // No message to update
-
-        final MessageEmbed updatedEmbed = createMatchEmbed(segment, isCompleted);
-        discordChannel.editMessageEmbedsById(messageId, updatedEmbed).queue();
     }
 
     private void updateCompletedMatches(final LiveMatchData liveMatchData) {
@@ -141,12 +99,50 @@ public class MatchTrackingService {
 
             if (messageId != null && segmentToUpdate != null) {
                 updateMatchEmbed(segmentToUpdate, messageId, true);
-                matchMessages.remove(matchId); // Remove from necessary as it's no longer necessary.
+                matchMessages.remove(matchId);
                 matchStreamLinks.remove(matchId);
             }
 
             return true;
         });
+    }
+
+    private void sendMatchEmbed(final MatchSegment segment) {
+        final MessageEmbed embed = createMatchEmbed(segment, false);
+
+        discordChannel.sendMessageEmbeds(embed).queue(message ->
+                matchMessages.put(segment.getMatch_page(), message.getId()) // Store message id to update later.
+        );
+    }
+
+    private void updateMatchEmbed(final MatchSegment segment, final String messageId, boolean isCompleted) {
+        if (messageId == null)
+            return;
+
+        final MessageEmbed updatedEmbed = createMatchEmbed(segment, isCompleted);
+        discordChannel.editMessageEmbedsById(messageId, updatedEmbed).queue();
+    }
+
+    private String scrapeStreamLink(final String matchUrl) {
+        try {
+            final Document document = Jsoup.connect(matchUrl).get();
+            final Element streamContainer = document.selectFirst("div.match-streams-container");
+
+            if (streamContainer != null) {
+                final Element streamLinkElement = streamContainer.selectFirst("a[href]");
+
+                if (streamLinkElement != null) {
+                    final String streamLink = streamLinkElement.attr("href");
+                    log.info("Scraped stream link for match {}: {}", matchUrl, streamLink);
+                    return streamLink;
+                }
+            }
+        } catch (final IOException e) {
+            log.error("Failed to scrape stream link for match: {}", matchUrl, e);
+        }
+
+        log.warn("No stream link found for match: {}", matchUrl);
+        return null;
     }
 
     private MessageEmbed createMatchEmbed(final MatchSegment segment, boolean isCompleted) {

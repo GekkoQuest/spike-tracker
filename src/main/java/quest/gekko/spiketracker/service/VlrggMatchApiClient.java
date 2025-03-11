@@ -25,9 +25,8 @@ public class VlrggMatchApiClient {
     }
 
     public LiveMatchData getLiveMatchData() {
-        final String url = apiProperties.getBaseUrl() + "/match?q=live_score";
-
         final VlrggApiResponse apiResponse = executeWithRetry(() -> {
+            final String url = apiProperties.getBaseUrl() + "/match?q=live_score";
             log.debug("Fetching live match data from: {}", url);
             final ResponseEntity<VlrggApiResponse> response = restTemplate.getForEntity(url, VlrggApiResponse.class);
             return response.getBody() !=  null ? response.getBody() : null;

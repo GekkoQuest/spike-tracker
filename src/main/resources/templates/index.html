@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <title>Spike Tracker</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="chat-box">
+    <div class="title">
+        Spike Tracker
+    </div>
+
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <div id="matches-container" style="display: none;">
+        <div th:if="${not matches.isEmpty()}">
+            <div th:each="matchEntry : ${matches}">
+                <div th:with="matchId=${matchEntry.key}, match=${matchEntry.value}">
+                    <div class="message">
+                        <strong th:text="${match.team1 + ' vs ' + match.team2}"></strong><br>
+                        <span th:text="${match.score1 + ' - ' + match.score2}"></span>
+                    </div>
+
+                    <div th:if="${matchStreamLinks.get(matchId) != null}" class="stream-link">
+                        <a th:href="${matchStreamLinks.get(matchId)}" target="_blank">Watch Live Stream</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div th:if="${matches.isEmpty()}" class="no-matches">
+            No current matches.
+        </div>
+    </div>
+
+    <div id="timestamp" class="timestamp">
+        Last checked: <span id="lastCheckedTime">Loading...</span>
+    </div>
+</div>
+
+<script th:inline="javascript">
+    /*<![CDATA[*/
+    const matchStreamLinks = /*[[${matchStreamLinks}]]*/ {};
+    /*]]>*/
+</script>
+
+<script src="/js/script.js"></script>
+</body>
+</html>

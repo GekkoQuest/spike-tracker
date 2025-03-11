@@ -1,15 +1,20 @@
 package quest.gekko.spiketracker.service;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import quest.gekko.spiketracker.model.match.LiveMatchData;
 import quest.gekko.spiketracker.model.match.MatchSegment;
 
 import java.awt.*;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -19,8 +24,11 @@ public class MatchTrackingService {
     private final VlrggMatchApiClient apiClient;
     private TextChannel discordChannel;
 
+    @Getter
     private final Map<String, MatchSegment> liveMatches = new HashMap<>();
     private final Map<String, String> matchMessages = new HashMap<>(); // Tracks matchId -> messageId
+    @Getter
+    private final Map<String, String> matchStreamLinks = new HashMap<>(); // Tracks matchId -> stream link
 
     public MatchTrackingService(final VlrggMatchApiClient apiClient) {
         this.apiClient = apiClient;
@@ -61,7 +69,41 @@ public class MatchTrackingService {
         // Otherwise store match data and generate a fresh embed.
         log.info("New match detected: {}", matchId);
         liveMatches.put(matchId, segment);
+
+        final String streamLink = scrapeStreamLink(segment.getMatch_page());
+        if (streamLink != null) {
+            segment.setStreamLink(streamLink); // Set the stream link in the MatchSegment object
+            matchStreamLinks.put(segment.getMatch_page(), streamLink);
+        }
+
         sendMatchEmbed(segment);
+    }
+
+    private String scrapeStreamLink(final String matchUrl) {
+        try {
+            // Get HTML content of webpage.
+            final Document document = Jsoup.connect(matchUrl).get();
+
+            // Locate where stream links are being stored.
+            final Element streamContainer = document.selectFirst("div.match-streams-container");
+
+            if (streamContainer != null) {
+                // Find the first available stream link.
+                final Element streamLinkElement = streamContainer.selectFirst("a[href]");
+
+                if (streamLinkElement != null) {
+                    final String streamLink = streamLinkElement.attr("href");
+                    log.info("Scraped stream link for match {}: {}", matchUrl, streamLink); // Debugging log
+                    return streamLink;
+                }
+            }
+        } catch (final IOException e) {
+            log.error("Failed to scrape stream link for match: {}", matchUrl, e);
+        }
+
+        // Should rarely, if ever, happen. Generally VLR matches contain a stream link.
+        log.warn("No stream link found for match: {}", matchUrl);
+        return null;
     }
 
     private boolean hasScoreChanged(final MatchSegment previousSegment, final MatchSegment newSegment) {
@@ -93,6 +135,7 @@ public class MatchTrackingService {
             if (isMatchFinished) {
                 updateMatchEmbed(entry.getValue(), matchMessages.get(matchId), true);
                 matchMessages.remove(matchId); // Remove match data from memory as it's no longer necessary to track.
+                matchStreamLinks.remove(matchId);
                 return true;
             }
             return false;

@@ -23,4 +23,5 @@ public class MatchSegment {
     private String unix_timestamp;
 
     private String match_page;
+    private String streamLink;
 }

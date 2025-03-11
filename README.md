@@ -34,3 +34,12 @@ You can do so by doing the following command in the channel of your choice:
 - Add configuration options for Discord messages.
 - Make all Discord messages embeded rather than plain messages.
 - Implement more Discord commands with permissions checking.
+
+## Demo
+You can view a simple web-based version of this project live at http://spike.gekko.quest
+
+Or simply look at these images to get an idea:
+
+![Demo](https://i.imgur.com/nc5AzY3m.jpg)
+
+![Deployment](https://i.imgur.com/5qV9WEMm.jpg)

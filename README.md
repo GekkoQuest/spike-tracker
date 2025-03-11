@@ -10,6 +10,7 @@ SpikeTracker is a live match tracking system for professional Valorant that util
 
 - Fetches live match data from the unofficial VLR.gg api.
 - Discord integration (WIP).
+- A simplistic frontend website to showcase matches and their scoreline.
 
 ## Requirements
 - Java 21+: This project is developed using Java 21 or higher.

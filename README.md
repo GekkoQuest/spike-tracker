@@ -62,7 +62,4 @@ If you're hosting this yourself, you'll need to make sure your Discord channel i
 You can view a live demo of this project at http://spike.gekko.quest, where you can see ongoing professional Valorant matches, team names, and scores.
 
 ## Screenshots
-
 ![Demo](https://i.imgur.com/nc5AzY3m.jpg)
-
-![Deployment](https://i.imgur.com/5qV9WEMm.jpg)

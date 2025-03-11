@@ -1,5 +1,5 @@
 function refreshMatches() {
-    console.log("Fetching matches..."); // Debugging log
+    console.log("Fetching matches...");
 
     fetch('/matches')
         .then(response => {
@@ -46,7 +46,7 @@ function refreshMatches() {
             lastCheckedTime.textContent = now.toLocaleTimeString();
         })
         .catch(error => {
-            console.error("Error fetching matches:", error); // Debugging log
+            console.error("Error fetching matches:", error);
 
             // Display an error message
             const matchesContainer = document.getElementById('matches-container');

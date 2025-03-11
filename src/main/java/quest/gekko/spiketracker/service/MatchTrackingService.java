@@ -129,16 +129,23 @@ public class MatchTrackingService {
 
     private void updateCompletedMatches(final LiveMatchData liveMatchData) {
         liveMatches.entrySet().removeIf(entry -> {
-            final String matchId = entry.getKey();
-            final boolean isMatchFinished = liveMatchData.getSegments().stream().noneMatch(segment -> segment.getMatch_page().equals(matchId));
+           final String matchId = entry.getKey();
+           final boolean isMatchCompleted = liveMatchData.getSegments().stream().noneMatch(segment -> segment.getMatch_page().equals(matchId));
 
-            if (isMatchFinished) {
-                updateMatchEmbed(entry.getValue(), matchMessages.get(matchId), true);
-                matchMessages.remove(matchId); // Remove match data from memory as it's no longer necessary to track.
-                matchStreamLinks.remove(matchId);
-                return true;
+            if (!isMatchCompleted) {
+                return false;
             }
-            return false;
+
+            final MatchSegment segmentToUpdate = entry.getValue();
+            final String messageId = matchMessages.get(matchId);
+
+            if (messageId != null && segmentToUpdate != null) {
+                updateMatchEmbed(segmentToUpdate, messageId, true);
+                matchMessages.remove(matchId); // Remove from necessary as it's no longer necessary.
+                matchStreamLinks.remove(matchId);
+            }
+
+            return true;
         });
     }
 

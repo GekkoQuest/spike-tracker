@@ -1,34 +1,56 @@
-
 # SpikeTracker
 
-SpikeTracker is a live match tracking system for professional Valorant that utilizes the unofficial VLR.gg api provided by https://vlrggapi.vercel.app/. It allows users to receive real-time notifications about ongoing matches.
-
-
-
+SpikeTracker is a live match tracking system for professional Valorant matches. It utilizes the unofficial VLR.gg API to fetch real-time match data, sending updates to Discord channels and displaying ongoing match scores on a simple frontend website.
 
 ## Features
 
-- Fetches live match data from the unofficial VLR.gg api.
-- Discord integration (WIP).
-- A simplistic frontend website to showcase matches and their scoreline.
+- Fetches live match data from the unofficial VLR.gg API.
+- Discord Bot Integration: Sends match updates to a configured Discord channel.
+- Simple web interface displaying live match data and scores for users without Discord.
 
 ## Requirements
-- Java 21+: This project is developed using Java 21 or higher.
-- Spring Boot: For building and running the application.
-- Discord Bot Token: Required for the Discord bot to function.
+- Java 21+
+- Spring Boot
+- Discord Bot Token (Note: Unless you decide to change it yourself, it must be passed as an environmental variable)
+- Docker (Optional, but preferred for containerized deployment)
+
 ## Installation
 
-- Clone the repository `https://github.com/GekkoQuest/spike-tracker.git`
+- Clone the repository
 
-- Add your Discord token to `application.properties`
-- Run the application by doing `./mvnw spring-boot:run`
+  `https://github.com/GekkoQuest/spike-tracker.git`
+  
+  `cd spike-tracker`
+  
+- Setup your environmental variables
+  
+  `export DISCORD_TOKEN=YOUR_DISCORD_BOT_TOKEN`
+  
+  `$env:DISCORD_TOKEN="YOUR_DISCORD_BOT_TOKEN"`
+  
+- Build and run the application
+
+  `./mvnw spring-boot:run`
+
 ## Usage
-The bot will not function unless you define a Discord channel to send updates to.
+- Discord
 
-You can do so by doing the following command in the channel of your choice:
-```bash
-#setchannel
-```
+To receive match updates on Discord, you must define a channel to send updates to by doing the `#setchannel` command in your server.
+
+- Website
+
+If you're hosting this yourself, you'll need to make sure your Discord channel is currently defined as mentioned earlier. At the moment, I do not intend on putting support otherwise as this is meant to be more of a Discord bot rather than a website.
+
+## Docker Deployment (Optional, but recommended)
+- Build the docker image:
+  
+  `docker build -t spike-tracker .`
+  
+- Run the docker container:
+  
+  `docker run -d -p 8080:8080 -e DISCORD_TOKEN=YOUR_DISCORD_BOT_TOKEN spike-tracker`
+  
+
 ## TODO
 - Add player stats to showcase at the end of match.
 - Ability to fetch previous/older match data.
@@ -37,9 +59,9 @@ You can do so by doing the following command in the channel of your choice:
 - Implement more Discord commands with permissions checking.
 
 ## Demo
-You can view a simple web-based version of this project live at http://spike.gekko.quest
+You can view a live demo of this project at http://spike.gekko.quest, where you can see ongoing professional Valorant matches, team names, and scores.
 
-Or simply look at these images to get an idea:
+## Screenshots
 
 ![Demo](https://i.imgur.com/nc5AzY3m.jpg)
 

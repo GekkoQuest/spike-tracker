@@ -52,6 +52,7 @@ If you're hosting this yourself, you'll need to make sure your Discord channel i
   
 
 ## TODO
+- I realized that I somewhat over-engieered the backend. Next update will focus on fixing this.
 - Add player stats to showcase at the end of match.
 - Ability to fetch previous/older match data.
 - Add configuration options for Discord messages.

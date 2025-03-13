@@ -77,6 +77,8 @@ Run the application locally:
 
 Open `http://localhost:8080` to view running matches.
 
+---
+
 ## 🤖 Discord Usage
 
 To receive Discord updates, you'll need to define a channel by using the following command:
@@ -86,9 +88,13 @@ To receive Discord updates, you'll need to define a channel by using the followi
 
 Once the command is set, the bot will continuously provide live match updates.
 
+---
+
 ## ⚠️ Important
 
 The current implementation prioritizes Discord integration. If your Discord channel isn't set, then the website will not showcase Valorant matches. Future releases may improve the website to run independently.
+
+---
 
 ## 🐳 Docker Deployment
 
@@ -107,8 +113,12 @@ Visit the deployed app:
 http://localhost:8080
 ```
 
+---
+
 ## 📺 Live Demo
 You can view a live demo of this application at: https://spike.gekko.quest.
+
+---
 
 ## Roadmap/TODO
 - [ ] Add player statistics and analytics at match completion.

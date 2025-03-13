@@ -1,6 +1,5 @@
 package quest.gekko.spiketracker.service;
 
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.MessageEmbed;
@@ -12,11 +11,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import quest.gekko.spiketracker.model.match.LiveMatchData;
 import quest.gekko.spiketracker.model.match.MatchSegment;
+import quest.gekko.spiketracker.service.api.VlrggMatchApiClient;
 
 import java.awt.*;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -24,148 +26,131 @@ public class MatchTrackingService {
     private final VlrggMatchApiClient apiClient;
     private TextChannel discordChannel;
 
-    @Getter
-    private final Map<String, MatchSegment> liveMatches = new HashMap<>();
-
-    @Getter
-    private final Map<String, String> matchStreamLinks = new HashMap<>(); // Tracks matchId -> stream link
-    private final Map<String, String> matchMessages = new HashMap<>(); // Tracks matchId -> messageId
+    private final Map<String, String> matchToMessage = new ConcurrentHashMap<>();
+    private final Map<String, MatchSegment> liveMatches = new ConcurrentHashMap<>();
 
     public MatchTrackingService(final VlrggMatchApiClient apiClient) {
         this.apiClient = apiClient;
     }
 
-    @Scheduled(fixedRate = 5000) // Check for updates every 5 seconds
-    public void fetchLiveMatchData() {
+    @Scheduled(fixedRate = 5000)
+    public void updateMatches() {
         if (discordChannel == null) {
-            log.warn("Live match tracking is disabled until a Discord channel is set.");
+            log.warn("Discord channel not set yet. Skipping update.");
             return;
         }
 
-        final LiveMatchData liveMatchData = apiClient.getLiveMatchData();
-        if (liveMatchData == null || liveMatchData.getSegments() == null)
-            return;
+        final List<MatchSegment> currentSegments = Optional.ofNullable(apiClient.getLiveMatchData())
+                .map(LiveMatchData::segments)
+                .orElseGet(() -> {
+                    log.warn("No match segments retrieved.");
+                    return Collections.emptyList();
+                });
 
-        liveMatchData.getSegments().forEach(this::processMatchSegment);
-        updateCompletedMatches(liveMatchData);
+        final Set<String> currentMatchIds = currentSegments.stream()
+                .map(MatchSegment::match_page)
+                .collect(Collectors.toSet());
+
+        // Handle completed matches
+        liveMatches.keySet().stream()
+                .filter(matchId -> !currentMatchIds.contains(matchId))
+                .toList()
+                .forEach(this::handleCompletedMatch);
+
+        // Process new or existing matches
+        currentSegments.forEach(this::handleNewOrUpdate);
     }
 
-    private void processMatchSegment(final MatchSegment segment) {
-        final String matchId = segment.getMatch_page();
+    private void handleNewOrUpdate(MatchSegment segment) {
+        final String matchId = segment.match_page();
 
-        // Update match data and its embed if it already exists.
-        if (liveMatches.containsKey(matchId)) {
-            final MatchSegment previousSegment = liveMatches.get(matchId);
+        // If new match, scrape stream link
+        if (!liveMatches.containsKey(matchId)) {
+            String streamLink = scrapeStreamLink(matchId);
+            segment = segment.withStreamLink(streamLink);
 
-            // Only update if score has changed. Helps prevent Discord's 429 rate limit error as well.
-            if (hasScoreChanged(previousSegment, segment)) {
-                log.info("Updating match: {}", matchId);
-                liveMatches.put(matchId, segment);
-                updateMatchEmbed(segment, matchMessages.get(matchId), false);
+            final MatchSegment previousSegment = liveMatches.put(matchId, segment);
+
+            final String existingMessageId = matchToMessage.get(matchId);
+            if (existingMessageId == null) {
+                sendMatchEmbed(segment);
+            } else if (previousSegment != null && hasScoreChanged(previousSegment, segment)) {
+                updateMatchEmbed(segment, existingMessageId, false);
             }
-
-            return;
         }
+    }
 
-        // Otherwise store match data and generate a fresh embed.
-        log.info("New match detected: {}", matchId);
-        liveMatches.put(matchId, segment);
+    private boolean hasScoreChanged(final MatchSegment oldSegment, final MatchSegment newSegment) {
+        return !oldSegment.score1().equals(newSegment.score1()) ||
+                !oldSegment.score2().equals(newSegment.score2());
+    }
 
-        final String streamLink = scrapeStreamLink(segment.getMatch_page());
-        if (streamLink != null) {
-            segment.setStreamLink(streamLink);
-            matchStreamLinks.put(segment.getMatch_page(), streamLink);
+    private void handleCompletedMatch(final String matchId) {
+        final String messageId = matchToMessage.remove(matchId);
+        final MatchSegment completedSegment = liveMatches.remove(matchId);
+
+        if (messageId != null && completedSegment != null) {
+            log.info("Match completed: {}", matchId);
+            updateMatchEmbed(completedSegment, messageId, true);
         }
-
-        sendMatchEmbed(segment);
-    }
-
-    private boolean hasScoreChanged(final MatchSegment previousSegment, final MatchSegment newSegment) {
-        return !previousSegment.getScore1().equals(newSegment.getScore1()) ||
-                !previousSegment.getScore2().equals(newSegment.getScore2());
-    }
-
-    private void updateCompletedMatches(final LiveMatchData liveMatchData) {
-        liveMatches.entrySet().removeIf(entry -> {
-           final String matchId = entry.getKey();
-           final boolean isMatchCompleted = liveMatchData.getSegments().stream().noneMatch(segment -> segment.getMatch_page().equals(matchId));
-
-            if (!isMatchCompleted) {
-                return false;
-            }
-
-            final MatchSegment segmentToUpdate = entry.getValue();
-            final String messageId = matchMessages.get(matchId);
-
-            if (messageId != null && segmentToUpdate != null) {
-                updateMatchEmbed(segmentToUpdate, messageId, true);
-                matchMessages.remove(matchId);
-                matchStreamLinks.remove(matchId);
-            }
-
-            return true;
-        });
-    }
-
-    private void sendMatchEmbed(final MatchSegment segment) {
-        final MessageEmbed embed = createMatchEmbed(segment, false);
-
-        discordChannel.sendMessageEmbeds(embed).queue(message ->
-                matchMessages.put(segment.getMatch_page(), message.getId()) // Store message id to update later.
-        );
-    }
-
-    private void updateMatchEmbed(final MatchSegment segment, final String messageId, boolean isCompleted) {
-        if (messageId == null)
-            return;
-
-        final MessageEmbed updatedEmbed = createMatchEmbed(segment, isCompleted);
-        discordChannel.editMessageEmbedsById(messageId, updatedEmbed).queue();
     }
 
     private String scrapeStreamLink(final String matchUrl) {
         try {
-            final Document document = Jsoup.connect(matchUrl).get();
-            final Element streamContainer = document.selectFirst("div.match-streams-container");
+            final Document doc = Jsoup.connect(matchUrl).get();
+            final Element streamLinkElement = doc.selectFirst("div.match-streams-container a[href]");
 
-            if (streamContainer != null) {
-                final Element streamLinkElement = streamContainer.selectFirst("a[href]");
-
-                if (streamLinkElement != null) {
-                    final String streamLink = streamLinkElement.attr("href");
-                    log.info("Scraped stream link for match {}: {}", matchUrl, streamLink);
-                    return streamLink;
-                }
+            if (streamLinkElement != null) {
+                final String streamLink = streamLinkElement.attr("href");
+                log.info("✅ Scraped stream link: {}", streamLink);
+                return streamLink;
+            } else {
+                log.warn("⚠️ Stream link HTML element NOT found");
             }
         } catch (final IOException e) {
-            log.error("Failed to scrape stream link for match: {}", matchUrl, e);
+            log.error("⚠️ Jsoup scrape failed for {}", matchUrl, e);
         }
-
-        log.warn("No stream link found for match: {}", matchUrl);
         return null;
     }
 
-    private MessageEmbed createMatchEmbed(final MatchSegment segment, boolean isCompleted) {
-        final EmbedBuilder embedBuilder = new EmbedBuilder()
-                .setTitle(isCompleted ? "Completed Valorant Match" : "Live Valorant Match")
-                .setDescription(formatMatchDescription(segment))
-                .addField("Event", "**" + segment.getMatch_event() + "**\n\u200B", false)
-                .addField("Series", "**" + segment.getMatch_series() + "**\n\u200B", false)
-                .addField("Score", "**" + segment.getScore1() + " - " + segment.getScore2() + "**", false)
-                .setColor(isCompleted ? Color.GRAY : Color.RED)
-                .setFooter(isCompleted ? "Match completed" : "Live match updates", null);
-
-        return embedBuilder.build();
+    private void sendMatchEmbed(final MatchSegment segment) {
+        final MessageEmbed embed = createMatchEmbed(segment, false);
+        discordChannel.sendMessageEmbeds(embed).queue(message ->
+                matchToMessage.put(segment.match_page(), message.getId())
+        );
     }
 
-    private String formatMatchDescription(final MatchSegment segment) {
-        return String.format("%s %s **vs** %s %s\n\u200B",
-                ":" + segment.getFlag1() + ":", segment.getTeam1(),
-                segment.getTeam2(), ":" + segment.getFlag2() + ":");
+    private void updateMatchEmbed(final MatchSegment segment, final String messageId, final boolean completed) {
+        discordChannel.editMessageEmbedsById(messageId, createMatchEmbed(segment, completed)).queue();
+    }
+
+    private MessageEmbed createMatchEmbed(final MatchSegment segment, boolean completed) {
+        final EmbedBuilder embed = new EmbedBuilder()
+                .setTitle(completed ? "🏁 Match Completed" : "🔴 Live Match")
+                .setDescription(String.format(":%s: **%s** vs **%s** :%s:",
+                        segment.flag1(), segment.team1(), segment.team2(), segment.flag2()))
+                .addField("Event", segment.match_event(), false)
+                .addField("Series", segment.match_series(), false)
+                .addField(completed ? "Final Score" : "Current Score",
+                        segment.score1() + " - " + segment.score2(), false)
+                .setColor(completed ? Color.GRAY : Color.RED)
+                .setFooter(completed
+                        ? "✅ Match ended. Final results."
+                        : "🎮 Live updates ongoing.", null);
+
+        if (segment.streamLink() != null && !completed) {
+            embed.setUrl(segment.streamLink());
+        }
+
+        return embed.build();
     }
 
     public void setChannel(final TextChannel discordChannel) {
         this.discordChannel = discordChannel;
-        log.info("Discord channel set to '{}'", discordChannel.getName());
+        log.info("Discord updates will now be sent to '{}'", discordChannel.getName());
+    }
+
+    public Map<String, MatchSegment> getLiveMatches() {
+        return Map.copyOf(liveMatches);
     }
 }

@@ -1,11 +1,10 @@
 package quest.gekko.spiketracker.model.match;
 
-import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
-@Data
-public class LiveMatchData {
-    private int status;
-    private List<MatchSegment> segments;
-}
+public record LiveMatchData(
+        @JsonProperty("status") int status,
+        @JsonProperty("segments") List<MatchSegment> segments
+) {}

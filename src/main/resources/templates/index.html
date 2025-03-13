@@ -17,18 +17,19 @@
     <div id="matches-container" style="display: none;">
         <div th:if="${not matches.isEmpty()}">
             <div th:each="matchEntry : ${matches}">
-                <div th:with="matchId=${matchEntry.key}, match=${matchEntry.value}">
-                    <div class="message">
-                        <strong th:text="${match.team1 + ' vs ' + match.team2}"></strong><br>
-                        <span th:text="${match.score1 + ' - ' + match.score2}"></span>
-                    </div>
+                <div th:with="match=${matchEntry.value}" class="message">
+                    <strong th:text="${match.team1()} + ' vs ' + ${match.team2()}"></strong><br>
+                    <span th:text="'Map: ' + ${match.current_map()}"></span><br>
+                    <span th:text="'Score: ' + ${match.score1()} + ' - ' + ${match.score2()}"></span><br>
+                    <span th:text="'Event: ' + ${match.match_event()}"></span>
 
-                    <div th:if="${matchStreamLinks.get(matchId) != null}" class="stream-link">
-                        <a th:href="${matchStreamLinks.get(matchId)}" target="_blank">Watch Live Stream</a>
+                    <div th:if="${match.streamLink() != null}" class="stream-link">
+                        <a th:href="${match.streamLink()}" target="_blank">🎥 Watch Live Stream</a>
                     </div>
                 </div>
             </div>
         </div>
+
         <div th:if="${matches.isEmpty()}" class="no-matches">
             No current matches.
         </div>
@@ -38,12 +39,6 @@
         Last checked: <span id="lastCheckedTime">Loading...</span>
     </div>
 </div>
-
-<script th:inline="javascript">
-    /*<![CDATA[*/
-    const matchStreamLinks = /*[[${matchStreamLinks}]]*/ {};
-    /*]]>*/
-</script>
 
 <script src="/js/script.js"></script>
 </body>

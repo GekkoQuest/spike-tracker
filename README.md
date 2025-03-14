@@ -124,5 +124,5 @@ You can view a live demo of this application at: https://spike.gekko.quest.
 - [ ] Add player statistics and analytics at match completion.
 - [ ] Fetch historical/archived match data.
 - [ ] Configurable options for both the website and Discord.
-- [ ] Discord commands and permission management for said commands.
+- [x] Discord command framework with permission check.
 - [ ] Ability to deploy independently of Discord configuration.

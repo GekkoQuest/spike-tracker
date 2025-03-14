@@ -66,12 +66,12 @@ public class MatchTrackingService {
 
         // If new match, scrape stream link
         if (!liveMatches.containsKey(matchId)) {
-            String streamLink = scrapeStreamLink(matchId);
+            final String streamLink = scrapeStreamLink(matchId);
             segment = segment.withStreamLink(streamLink);
 
             final MatchSegment previousSegment = liveMatches.put(matchId, segment);
-
             final String existingMessageId = matchToMessage.get(matchId);
+
             if (existingMessageId == null) {
                 sendMatchEmbed(segment);
             } else if (previousSegment != null && hasScoreChanged(previousSegment, segment)) {
@@ -126,7 +126,7 @@ public class MatchTrackingService {
 
     private MessageEmbed createMatchEmbed(final MatchSegment segment, boolean completed) {
         final EmbedBuilder embed = new EmbedBuilder()
-                .setTitle(completed ? "🏁 Match Completed" : "🔴 Live Match")
+                .setTitle(completed ? "🏁 Match Completed" : "🏁 Live Match - Click to Watch")
                 .setDescription(String.format(":%s: **%s** vs **%s** :%s:",
                         segment.flag1(), segment.team1(), segment.team2(), segment.flag2()))
                 .addField("Event", segment.match_event(), false)
@@ -136,11 +136,8 @@ public class MatchTrackingService {
                 .setColor(completed ? Color.GRAY : Color.RED)
                 .setFooter(completed
                         ? "✅ Match ended. Final results."
-                        : "🎮 Live updates ongoing.", null);
-
-        if (segment.streamLink() != null && !completed) {
-            embed.setUrl(segment.streamLink());
-        }
+                        : "🎮 Live updates ongoing.", null)
+                .setUrl(segment.streamLink());
 
         return embed.build();
     }

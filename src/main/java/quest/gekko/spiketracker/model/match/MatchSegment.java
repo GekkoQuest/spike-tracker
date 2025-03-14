@@ -1,7 +1,6 @@
 package quest.gekko.spiketracker.model.match;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
 
 // Reference: https://vlrggapi.vercel.app/#/default/VLR_match_match_get
 

@@ -20,6 +20,7 @@ public class MatchTrackingService {
     private final MatchNotifierService notifierService;
 
     private final Map<String, MatchSegment> liveMatches = new ConcurrentHashMap<>();
+    private final Map<String, String> streamLinkCache = new ConcurrentHashMap<>();
 
     public MatchTrackingService(final VlrggMatchApiClient apiClient, final MatchNotifierService notifierService) {
         this.apiClient = apiClient;
@@ -58,13 +59,21 @@ public class MatchTrackingService {
 
     private void handleNewMatch(MatchSegment segment, final String matchId) {
         final String streamLink = StreamLinkScraper.scrapeStreamLink(matchId);
-        segment = segment.withStreamLink(streamLink);
+        streamLinkCache.put(matchId, streamLink);
 
+        segment = segment.withStreamLink(streamLink);
         liveMatches.put(matchId, segment);
+
         notifierService.notifyNewMatch(segment);
     }
 
-    private void handleScoreUpdate(final MatchSegment segment, final String matchId) {
+    private void handleScoreUpdate(MatchSegment segment, final String matchId) {
+        final String cachedStreamLink = streamLinkCache.get(matchId);
+
+        if (segment.streamLink().isEmpty() && cachedStreamLink != null) {
+            segment = segment.withStreamLink(cachedStreamLink);
+        }
+
         liveMatches.put(matchId, segment);
         notifierService.notifyScoreUpdate(segment);
     }
@@ -75,6 +84,8 @@ public class MatchTrackingService {
         if (completedSegment != null) {
             notifierService.notifyMatchCompletion(completedSegment);
         }
+
+        streamLinkCache.remove(matchId);
     }
 
     private boolean hasScoreChanged(final MatchSegment oldSegment, final MatchSegment newSegment) {

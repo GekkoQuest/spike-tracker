@@ -12,7 +12,7 @@ public class DiscordInitializer implements CommandLineRunner {
     private final DiscordProperties properties;
     private final CommandManager commandManager;
 
-    public DiscordInitializer(final DiscordProperties discordProperties,  CommandManager commandManager) {
+    public DiscordInitializer(final DiscordProperties discordProperties,  final CommandManager commandManager) {
         this.properties = discordProperties;
         this.commandManager = commandManager;
     }

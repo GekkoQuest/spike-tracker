@@ -12,7 +12,7 @@ import quest.gekko.spiketracker.service.MatchTrackingService;
 public class SetChannelCommand implements Command {
     private final MatchTrackingService matchTrackingService;
 
-    public SetChannelCommand(MatchTrackingService matchTrackingService) {
+    public SetChannelCommand(final MatchTrackingService matchTrackingService) {
         this.matchTrackingService = matchTrackingService;
     }
 
@@ -22,12 +22,12 @@ public class SetChannelCommand implements Command {
     }
 
     @Override
-    public boolean hasPermission(Member member) {
+    public boolean hasPermission(final Member member) {
         return member.hasPermission(Permission.ADMINISTRATOR);
     }
 
     @Override
-    public void execute(MessageReceivedEvent event, String[] args) {
+    public void execute(final MessageReceivedEvent event, final String[] args) {
         if (event.getChannel() instanceof TextChannel channel) {
             matchTrackingService.setChannel(channel);
             channel.sendMessage("Channel has been set for match updates!").queue();

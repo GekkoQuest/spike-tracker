@@ -1,4 +1,4 @@
-package quest.gekko.spiketracker.config.properties;
+package quest.gekko.spiketracker.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

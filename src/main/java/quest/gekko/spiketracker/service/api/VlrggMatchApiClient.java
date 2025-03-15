@@ -2,30 +2,28 @@ package quest.gekko.spiketracker.service.api;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import quest.gekko.spiketracker.config.properties.VlrggApiProperties;
+import org.springframework.web.client.RestTemplate;
+import quest.gekko.spiketracker.config.VlrggApiProperties;
 import quest.gekko.spiketracker.model.api.VlrggApiResponse;
 import quest.gekko.spiketracker.model.match.LiveMatchData;
-
-import java.util.Optional;
 
 @Slf4j
 @Service
 public class VlrggMatchApiClient {
-    private final RestClient client;
+    private final RestTemplate restTemplate;
     private final VlrggApiProperties props;
 
-    public VlrggMatchApiClient(final RestClient client, final VlrggApiProperties props) {
-        this.client = client;
+    public VlrggMatchApiClient(final VlrggApiProperties props) {
+        this.restTemplate = new RestTemplate();
         this.props = props;
     }
 
     public LiveMatchData getLiveMatchData() {
         try {
-            final VlrggApiResponse response = client.get()
-                    .uri(props.baseUrl() + "/match?q=live_score")
-                    .retrieve()
-                    .body(VlrggApiResponse.class);
+            final VlrggApiResponse response = restTemplate.getForObject(
+                    props.baseUrl() + "/match?q=live_score",
+                    VlrggApiResponse.class
+            );
 
             log.info("API response: {}", response);
             return response != null ? response.data() : null;

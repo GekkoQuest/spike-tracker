@@ -28,6 +28,7 @@ public class MatchTrackingService {
 
     private final Map<String, String> matchToMessage = new ConcurrentHashMap<>();
     private final Map<String, MatchSegment> liveMatches = new ConcurrentHashMap<>();
+    private final Map<String, String> streamLinkCache = new ConcurrentHashMap<>();
 
     public MatchTrackingService(final VlrggMatchApiClient apiClient) {
         this.apiClient = apiClient;
@@ -51,17 +52,15 @@ public class MatchTrackingService {
                 .map(MatchSegment::match_page)
                 .collect(Collectors.toSet());
 
-        // Handle completed matches
         liveMatches.keySet().stream()
                 .filter(matchId -> !currentMatchIds.contains(matchId))
-                .toList()
                 .forEach(this::handleCompletedMatch);
 
         // Process new or existing matches
         currentSegments.forEach(this::handleNewOrUpdate);
     }
 
-    private void handleNewOrUpdate(MatchSegment segment) {
+    private void handleNewOrUpdate(final MatchSegment segment) {
         final String matchId = segment.match_page();
         final MatchSegment previousSegment = liveMatches.get(matchId);
 
@@ -74,12 +73,13 @@ public class MatchTrackingService {
 
     private void handleNewMatch(MatchSegment segment, final String matchId) {
         final String streamLink = scrapeStreamLink(matchId);
+        streamLinkCache.put(matchId, streamLink);
+
         segment = segment.withStreamLink(streamLink);
 
         liveMatches.put(matchId, segment);
 
         final String existingMessageId = matchToMessage.get(matchId);
-
         if (existingMessageId == null) {
             sendMatchEmbed(segment);
         } else {
@@ -87,11 +87,18 @@ public class MatchTrackingService {
         }
     }
 
-    private void handleScoreUpdate(final MatchSegment segment, final MatchSegment previousSegment, final String matchId) {
+    private void handleScoreUpdate(MatchSegment segment, final MatchSegment previousSegment, final String matchId) {
         if (hasScoreChanged(previousSegment, segment)) {
+            final String cachedStreamLink = streamLinkCache.get(matchId);
+            if (cachedStreamLink != null && (segment.streamLink() == null || segment.streamLink().isEmpty())) {
+                segment = segment.withStreamLink(cachedStreamLink);
+            }
+
+            liveMatches.put(matchId, segment);
+
             final String existingMessageId = matchToMessage.get(matchId);
             if (existingMessageId != null) {
-                updateMatchEmbed(segment, existingMessageId, true);
+                updateMatchEmbed(segment, existingMessageId, false);
             }
         }
     }
@@ -102,6 +109,7 @@ public class MatchTrackingService {
     }
 
     private void handleCompletedMatch(final String matchId) {
+        log.info("Handling completed match {}", matchId);
         final String messageId = matchToMessage.remove(matchId);
         final MatchSegment completedSegment = liveMatches.remove(matchId);
 

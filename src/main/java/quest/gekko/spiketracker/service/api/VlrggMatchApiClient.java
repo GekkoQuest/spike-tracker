@@ -25,7 +25,7 @@ public class VlrggMatchApiClient {
                     VlrggApiResponse.class
             );
 
-            log.info("API response: {}", response);
+            // log.info("API response: {}", response);
             return response != null ? response.data() : null;
         } catch (final Exception e) {
             log.error("Error retrieving live matches", e);

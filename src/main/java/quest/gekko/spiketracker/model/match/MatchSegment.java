@@ -27,7 +27,7 @@ public record MatchSegment(
         String streamLink // Scraped later. No annotation needed since not in JSON.
 ) {
 
-    public MatchSegment withStreamLink(String streamLink) {
+    public MatchSegment withStreamLink(final String streamLink) {
         return new MatchSegment(
                 this.team1, this.team2,
                 this.flag1, this.flag2,
@@ -39,7 +39,8 @@ public record MatchSegment(
                 this.time_until_match,
                 this.match_event, this.match_series,
                 this.unix_timestamp,
-                this.match_page, streamLink
+                this.match_page,
+                streamLink
         );
     }
 

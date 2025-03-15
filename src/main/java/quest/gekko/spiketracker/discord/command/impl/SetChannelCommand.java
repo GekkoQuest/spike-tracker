@@ -6,14 +6,14 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import org.springframework.stereotype.Component;
 import quest.gekko.spiketracker.discord.command.base.Command;
-import quest.gekko.spiketracker.service.MatchTrackingService;
+import quest.gekko.spiketracker.service.MatchNotifierService;
 
 @Component
 public class SetChannelCommand implements Command {
-    private final MatchTrackingService matchTrackingService;
+    private final MatchNotifierService notifierService;
 
-    public SetChannelCommand(final MatchTrackingService matchTrackingService) {
-        this.matchTrackingService = matchTrackingService;
+    public SetChannelCommand(final MatchNotifierService notifierService) {
+        this.notifierService = notifierService;
     }
 
     @Override
@@ -29,7 +29,7 @@ public class SetChannelCommand implements Command {
     @Override
     public void execute(final MessageReceivedEvent event, final String[] args) {
         if (event.getChannel() instanceof TextChannel channel) {
-            matchTrackingService.setChannel(channel);
+            notifierService.setChannel(channel);
             channel.sendMessage("Channel has been set for match updates!").queue();
         } else {
             event.getChannel().sendMessage("This command can only be executed in text channels!").queue();

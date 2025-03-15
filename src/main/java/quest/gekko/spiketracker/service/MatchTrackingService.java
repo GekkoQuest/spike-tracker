@@ -63,19 +63,35 @@ public class MatchTrackingService {
 
     private void handleNewOrUpdate(MatchSegment segment) {
         final String matchId = segment.match_page();
+        final MatchSegment previousSegment = liveMatches.get(matchId);
 
-        // If new match, scrape stream link
-        if (!liveMatches.containsKey(matchId)) {
-            final String streamLink = scrapeStreamLink(matchId);
-            segment = segment.withStreamLink(streamLink);
+        if (previousSegment == null) {
+            handleNewMatch(segment, matchId);
+        } else {
+            handleScoreUpdate(segment, previousSegment, matchId);
+        }
+    }
 
-            final MatchSegment previousSegment = liveMatches.put(matchId, segment);
+    private void handleNewMatch(MatchSegment segment, final String matchId) {
+        final String streamLink = scrapeStreamLink(matchId);
+        segment = segment.withStreamLink(streamLink);
+
+        liveMatches.put(matchId, segment);
+
+        final String existingMessageId = matchToMessage.get(matchId);
+
+        if (existingMessageId == null) {
+            sendMatchEmbed(segment);
+        } else {
+            log.debug("Match already exists for {}", matchId);
+        }
+    }
+
+    private void handleScoreUpdate(final MatchSegment segment, final MatchSegment previousSegment, final String matchId) {
+        if (hasScoreChanged(previousSegment, segment)) {
             final String existingMessageId = matchToMessage.get(matchId);
-
-            if (existingMessageId == null) {
-                sendMatchEmbed(segment);
-            } else if (previousSegment != null && hasScoreChanged(previousSegment, segment)) {
-                updateMatchEmbed(segment, existingMessageId, false);
+            if (existingMessageId != null) {
+                updateMatchEmbed(segment, existingMessageId, true);
             }
         }
     }

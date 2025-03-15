@@ -117,6 +117,8 @@ public class MatchTrackingService {
             log.info("Match completed: {}", matchId);
             updateMatchEmbed(completedSegment, messageId, true);
         }
+        
+        streamLinkCache.remove(matchId);
     }
 
     private String scrapeStreamLink(final String matchUrl) {

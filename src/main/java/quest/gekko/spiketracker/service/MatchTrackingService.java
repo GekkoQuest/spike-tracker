@@ -70,7 +70,7 @@ public class MatchTrackingService {
     private void handleScoreUpdate(MatchSegment segment, final String matchId) {
         final String cachedStreamLink = streamLinkCache.get(matchId);
 
-        if (segment.streamLink().isEmpty() && cachedStreamLink != null) {
+        if ((segment.streamLink() == null || segment.streamLink().isEmpty()) && cachedStreamLink != null) {
             segment = segment.withStreamLink(cachedStreamLink);
         }
 

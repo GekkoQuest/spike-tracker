@@ -51,8 +51,13 @@ public class MatchTrackingService {
         final MatchSegment previousSegment = liveMatches.get(matchId);
 
         if (previousSegment == null) {
+            log.info("New match has been detected! ({})", matchId);
             handleNewMatch(segment, matchId);
-        } else if (hasScoreChanged(previousSegment, segment)) {
+            return;
+        }
+
+        if (hasScoreChanged(previousSegment, segment)) {
+            log.info("Score in match {} has changed.", matchId);
             handleScoreUpdate(segment, matchId);
         }
     }

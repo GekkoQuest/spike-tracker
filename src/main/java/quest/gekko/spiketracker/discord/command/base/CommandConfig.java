@@ -10,6 +10,7 @@ public class CommandConfig {
     @Bean
     public CommandManager commandManager(final List<Command> commands) {
         final CommandManager commandManager = new CommandManager();
+
         commands.forEach(command -> {
             final String commandName = command.getCommandName();
             commandManager.registerCommand(commandName, command);

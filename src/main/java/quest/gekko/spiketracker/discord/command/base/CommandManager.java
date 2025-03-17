@@ -29,12 +29,15 @@ public class CommandManager extends ListenerAdapter {
         final String[] args = Arrays.copyOfRange(splitMessage, 1, splitMessage.length);
 
         final Command command = commands.get(commandName);
-        if (command != null) {
-            if (command.hasPermission(event.getMember())) {
-                command.execute(event, args);
-            } else {
-                event.getChannel().sendMessage("You don't have permission to use this command").queue();
-            }
+
+        if (command == null) {
+            return;
+        }
+
+        if (command.hasPermission(event.getMember())) {
+            command.execute(event, args);
+        } else {
+            event.getChannel().sendMessage("You don't have permission to use this command").queue();
         }
     }
 }

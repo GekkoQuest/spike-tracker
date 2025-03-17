@@ -28,6 +28,7 @@ public class MatchNotifierService {
         }
 
         final MessageEmbed embed = createMatchEmbed(segment, false);
+
         discordChannel.sendMessageEmbeds(embed).queue(
                 message -> matchToMessage.put(segment.match_page(), message.getId())
         );

@@ -3,7 +3,7 @@ package quest.gekko.spiketracker.service.api;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-import quest.gekko.spiketracker.config.VlrggApiProperties;
+import quest.gekko.spiketracker.config.ApplicationProperties;
 import quest.gekko.spiketracker.model.api.VlrggApiResponse;
 import quest.gekko.spiketracker.model.match.LiveMatchData;
 
@@ -11,17 +11,17 @@ import quest.gekko.spiketracker.model.match.LiveMatchData;
 @Service
 public class VlrggMatchApiClient {
     private final RestTemplate restTemplate;
-    private final VlrggApiProperties props;
+    private final ApplicationProperties.VlrggApi properties;
 
-    public VlrggMatchApiClient(final VlrggApiProperties props) {
+    public VlrggMatchApiClient(final ApplicationProperties.VlrggApi properties) {
         this.restTemplate = new RestTemplate();
-        this.props = props;
+        this.properties = properties;
     }
 
     public LiveMatchData getLiveMatchData() {
         try {
             final VlrggApiResponse response = restTemplate.getForObject(
-                    props.baseUrl() + "/match?q=live_score",
+                    properties.baseUrl() + "/match?q=live_score",
                     VlrggApiResponse.class
             );
 

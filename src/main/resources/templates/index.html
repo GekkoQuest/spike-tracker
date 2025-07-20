@@ -1,45 +1,84 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org" lang="en">
 <head>
-    <title>Spike Tracker</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpikeTracker - Live Valorant Match Tracker</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 </head>
 <body>
-<div class="chat-box">
-    <div class="title">
-        Spike Tracker
-    </div>
+<div class="connection-status" id="connectionStatus">Connecting...</div>
 
-    <div id="loading" class="loading">
-        <div class="spinner"></div>
-    </div>
+<div class="container">
+    <header class="header">
+        <h1 class="title">SpikeTracker</h1>
+        <p class="subtitle">Real-time Valorant Professional Match Tracker</p>
+    </header>
 
-    <div id="matches-container" style="display: none;">
-        <div th:if="${not matches.isEmpty()}">
-            <div th:each="matchEntry : ${matches}">
-                <div th:with="match=${matchEntry.value}" class="message">
-                    <strong th:text="${match.team1()} + ' vs ' + ${match.team2()}"></strong><br>
-                    <span th:text="'Map: ' + ${match.current_map()}"></span><br>
-                    <span th:text="'Score: ' + ${match.score1()} + ' - ' + ${match.score2()}"></span><br>
-                    <span th:text="'Event: ' + ${match.match_event()}"></span>
-
-                    <div th:if="${match.streamLink() != null}" class="stream-link">
-                        <a th:href="${match.streamLink()}" target="_blank">🎥 Watch Live Stream</a>
-                    </div>
-                </div>
-            </div>
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-indicator" id="apiStatus"></div>
+            <span>API Status</span>
         </div>
-
-        <div th:if="${matches.isEmpty()}" class="no-matches">
-            No current matches.
+        <div class="status-item">
+            <span id="liveMatchCount">0 Live Matches</span>
+        </div>
+        <div class="status-item">
+            <span id="lastUpdate">Never</span>
         </div>
     </div>
 
-    <div id="timestamp" class="timestamp">
-        Last checked: <span id="lastCheckedTime">Loading...</span>
+    <nav class="nav-tabs">
+        <button class="nav-tab active" onclick="showTab('live')">🔴 Live Matches</button>
+        <button class="nav-tab" onclick="showTab('history')">📈 Recent Results</button>
+    </nav>
+
+    <div id="liveTab" class="tab-content">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading live matches...</p>
+        </div>
+
+        <div id="liveMatchesContainer" class="matches-grid" style="display: none;">
+            <!-- Live matches will be populated here -->
+        </div>
+
+        <div id="noLiveMatches" class="no-matches" style="display: none;">
+            <div class="no-matches-icon">🎮</div>
+            <h3>No Live Matches</h3>
+            <p>There are currently no professional Valorant matches being played.<br>
+                Check back later or view recent results!</p>
+        </div>
+    </div>
+
+    <div id="historyTab" class="tab-content" style="display: none;">
+        <div class="section-title">
+            📈 Recent Match Results
+        </div>
+
+        <div id="historyContainer" class="history-grid">
+            <!-- Match history will be populated here -->
+        </div>
+
+        <div id="noHistory" class="no-matches" style="display: none;">
+            <div class="no-matches-icon">📊</div>
+            <h3>No Recent Matches</h3>
+            <p>No completed matches to display yet.</p>
+        </div>
     </div>
 </div>
 
+<footer class="footer">
+    <p>Data provided by VLR.gg API • SpikeTracker v2.0</p>
+</footer>
+
+<!-- WebSocket and SockJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
 <script src="/js/script.js"></script>
 </body>
 </html>

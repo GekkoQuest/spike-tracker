@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  spike-tracker-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    container_name: spike-tracker-dev
+    ports:
+      - "8080:8080"
+      - "5005:5005"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - JAVA_OPTS=-Xmx512m -Xms256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+    volumes:
+      - .:/app
+      - ~/.m2:/root/.m2
+    restart: unless-stopped
+    networks:
+      - spike-tracker-network
+    command: ["./mvnw", "spring-boot:run"]
+
+networks:
+  spike-tracker-network:
+    driver: bridge

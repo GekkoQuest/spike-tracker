@@ -1,7 +1,11 @@
 package quest.gekko.spiketracker.service;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -10,9 +14,15 @@ import quest.gekko.spiketracker.model.match.MatchSegment;
 import quest.gekko.spiketracker.service.api.VlrggMatchApiClient;
 import quest.gekko.spiketracker.util.StreamLinkScraper;
 
-import java.util.*;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -22,131 +32,301 @@ public class MatchTrackingService {
     private final MatchHistoryService historyService;
     private final SimpMessagingTemplate messagingTemplate;
     private final StreamLinkScraper streamLinkScraper;
+    private final MeterRegistry meterRegistry;
+
+    private final int maxConsecutiveFailures;
+    private final long healthCheckThresholdMs;
+    private final boolean enableStreamScraping;
+
+    private final Timer updateCycleTimer;
 
     private final Map<String, MatchSegment> liveMatches = new ConcurrentHashMap<>();
     private final Map<String, String> streamLinkCache = new ConcurrentHashMap<>();
     private final Map<String, Integer> failureCount = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> lastUpdateTimes = new ConcurrentHashMap<>();
 
     @Getter
     private long lastUpdateTime = System.currentTimeMillis();
+
     private boolean isHealthy = true;
 
-    public MatchTrackingService(final VlrggMatchApiClient apiClient,
-                                final MatchHistoryService historyService,
-                                final SimpMessagingTemplate messagingTemplate,
-                                final StreamLinkScraper streamLinkScraper) {
+    private int consecutiveFailures = 0;
+    private LocalDateTime lastSuccessfulUpdate = LocalDateTime.now();
+
+    public MatchTrackingService(
+            final VlrggMatchApiClient apiClient,
+            final MatchHistoryService historyService,
+            final SimpMessagingTemplate messagingTemplate,
+            final StreamLinkScraper streamLinkScraper,
+            final MeterRegistry meterRegistry,
+            @Value("${app.match-tracking.max-consecutive-failures:5}") final int maxConsecutiveFailures,
+            @Value("${app.match-tracking.health-check-threshold-ms:60000}") final long healthCheckThresholdMs,
+            @Value("${app.match-tracking.enable-stream-scraping:true}") final boolean enableStreamScraping) {
+
         this.apiClient = apiClient;
         this.historyService = historyService;
         this.messagingTemplate = messagingTemplate;
         this.streamLinkScraper = streamLinkScraper;
+        this.meterRegistry = meterRegistry;
+        this.maxConsecutiveFailures = maxConsecutiveFailures;
+        this.healthCheckThresholdMs = healthCheckThresholdMs;
+        this.enableStreamScraping = enableStreamScraping;
+
+        this.updateCycleTimer = Timer.builder("match.update.cycle")
+                .description("Time taken for match update cycle")
+                .register(meterRegistry);
     }
 
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRateString = "${app.match-tracking.update-interval:5000}")
     public void updateMatches() {
+        final Timer.Sample sample = Timer.start();
+
         try {
-            final List<MatchSegment> currentMatches = Optional.ofNullable(apiClient.getLiveMatchData())
-                    .map(LiveMatchData::segments)
-                    .orElseGet(Collections::emptyList);
+            final List<MatchSegment> currentMatches = fetchCurrentMatches();
 
-            final Set<String> currentMatchIds = currentMatches.stream()
-                    .map(MatchSegment::match_page)
-                    .collect(Collectors.toSet());
+            if (currentMatches == null) {
+                handleApiFailure();
+                return;
+            }
 
-            // Handle completed matches
-            liveMatches.keySet().stream()
-                    .filter(matchId -> !currentMatchIds.contains(matchId))
-                    .forEach(this::handleCompletedMatch);
+            processMatchUpdates(currentMatches);
+            broadcastUpdates();
 
-            // Handle new or updated matches
-            currentMatches.forEach(this::handleMatchUpdate);
-
-            // Broadcast to WebSocket subscribers
-            messagingTemplate.convertAndSend("/topic/matches", liveMatches.values());
-
+            consecutiveFailures = 0;
+            lastSuccessfulUpdate = LocalDateTime.now();
             lastUpdateTime = System.currentTimeMillis();
             isHealthy = true;
-            failureCount.clear();
-        } catch (Exception e) {
-            log.error("Error during match update cycle", e);
-            isHealthy = false;
 
-            // Increment failure count for each match
-            liveMatches.keySet().forEach(matchId -> failureCount.merge(matchId, 1, Integer::sum));
+            meterRegistry.counter("match.updates", "status", "success").increment();
+        } catch (final Exception e) {
+            handleUpdateException(e);
+        } finally {
+            sample.stop(updateCycleTimer);
         }
+    }
+
+    private List<MatchSegment> fetchCurrentMatches() {
+        try {
+            final LiveMatchData data = apiClient.getLiveMatchData();
+            return data != null ? data.segments() : null;
+        } catch (Exception e) {
+            log.warn("Failed to fetch current matches: {}", e.getMessage());
+            meterRegistry.counter("api.errors", "source", "vlrgg", "type", "fetch_failure").increment();
+            return null;
+        }
+    }
+
+    private void processMatchUpdates(final List<MatchSegment> currentMatches) {
+        final Set<String> currentMatchIds = currentMatches.stream()
+                .map(MatchSegment::match_page)
+                .collect(Collectors.toSet());
+
+        final Set<String> completedMatchIds = liveMatches.keySet().stream()
+                .filter(matchId -> !currentMatchIds.contains(matchId))
+                .collect(Collectors.toSet());
+
+        completedMatchIds.forEach(this::handleCompletedMatch);
+        currentMatches.forEach(this::handleMatchUpdate);
+
+        cleanupStaleData();
     }
 
     private void handleMatchUpdate(final MatchSegment segment) {
         final String matchId = segment.match_page();
-        final MatchSegment previousSegment = liveMatches.get(matchId);
 
-        if (previousSegment == null) {
-            log.info("New match detected: {} vs {} ({})",
-                    segment.team1(), segment.team2(), matchId);
-            handleNewMatch(segment, matchId);
+        if (!isValidMatchSegment(segment)) {
+            log.warn("Invalid match segment received for {}", matchId);
+            meterRegistry.counter("match.processing", "status", "invalid").increment();
             return;
         }
 
-        if (hasScoreChanged(previousSegment, segment)) {
-            log.info("Score updated in {}: {} vs {} ({}-{})",
-                    matchId, segment.team1(), segment.team2(),
-                    segment.score1(), segment.score2());
-            handleScoreUpdate(segment, matchId);
+        final MatchSegment previousSegment = liveMatches.get(matchId);
+        lastUpdateTimes.put(matchId, LocalDateTime.now());
+
+        if (previousSegment == null) {
+            handleNewMatch(segment, matchId);
+        } else if (hasSignificantChanges(previousSegment, segment)) {
+            handleMatchChanges(segment, matchId, previousSegment);
         }
+    }
+
+    private boolean isValidMatchSegment(final MatchSegment segment) {
+        return segment != null &&
+                segment.match_page() != null &&
+                segment.team1() != null &&
+                segment.team2() != null &&
+                !segment.team1().trim().isEmpty() &&
+                !segment.team2().trim().isEmpty();
     }
 
     private void handleNewMatch(final MatchSegment segment, final String matchId) {
-        historyService.recordMatchStart(matchId);
+        try {
+            log.info("New match detected: {} vs {} ({})",
+                    segment.team1(), segment.team2(), matchId);
 
-        // Scrape stream link in background to avoid blocking
-        new Thread(() -> {
-            try {
-                final String streamLink = streamLinkScraper.scrapeStreamLink(segment.match_page());
-                if (streamLink != null) {
-                    streamLinkCache.put(matchId, streamLink);
+            historyService.recordMatchStart(matchId, segment);
 
-                    // Update the match with stream link
-                    final MatchSegment updatedSegment = segment.withStreamLink(streamLink);
-                    liveMatches.put(matchId, updatedSegment);
-
-                    // Broadcast update
-                    messagingTemplate.convertAndSend("/topic/matches", liveMatches.values());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to scrape stream link for {}", matchId, e);
+            if (enableStreamScraping) {
+                scrapeStreamLinkAsync(segment, matchId);
             }
-        }).start();
 
-        liveMatches.put(matchId, segment);
+            liveMatches.put(matchId, segment);
+            failureCount.remove(matchId);
+
+            meterRegistry.counter("match.events", "type", "new").increment();
+        } catch (final Exception e) {
+            log.error("Failed to handle new match {}: {}", matchId, e.getMessage(), e);
+            meterRegistry.counter("match.processing", "status", "error", "type", "new_match").increment();
+        }
     }
 
-    private void handleScoreUpdate(MatchSegment segment, final String matchId) {
-        final String cachedStreamLink = streamLinkCache.get(matchId);
+    private void handleMatchChanges(MatchSegment segment, final String matchId, final MatchSegment previousSegment) {
+        try {
+            if (hasScoreChanged(previousSegment, segment)) {
+                log.info("Score updated in {}: {} vs {} ({}-{})",
+                        matchId, segment.team1(), segment.team2(),
+                        segment.score1(), segment.score2());
 
-        if ((segment.streamLink() == null || segment.streamLink().isEmpty()) && cachedStreamLink != null) {
-            segment = segment.withStreamLink(cachedStreamLink);
+                historyService.updateMatchScore(matchId, segment.score1(), segment.score2(),
+                        segment.current_map(), segment.streamLink());
+
+                meterRegistry.counter("match.events", "type", "score_update").increment();
+            }
+
+            final String cachedStreamLink = streamLinkCache.get(matchId);
+
+            if ((segment.streamLink() == null || segment.streamLink().isEmpty()) && cachedStreamLink != null) {
+                segment = segment.withStreamLink(cachedStreamLink);
+            }
+
+            liveMatches.put(matchId, segment);
+        } catch (final Exception e) {
+            log.error("Failed to handle match changes for {}: {}", matchId, e.getMessage(), e);
+            meterRegistry.counter("match.processing", "status", "error", "type", "update").increment();
         }
-
-        liveMatches.put(matchId, segment);
     }
 
     private void handleCompletedMatch(final String matchId) {
-        final MatchSegment completedSegment = liveMatches.remove(matchId);
+        try {
+            final MatchSegment completedSegment = liveMatches.remove(matchId);
 
-        if (completedSegment != null) {
-            log.info("Match completed: {} vs {} (Final: {}-{})",
-                    completedSegment.team1(), completedSegment.team2(),
-                    completedSegment.score1(), completedSegment.score2());
+            if (completedSegment != null) {
+                log.info("Match completed: {} vs {} (Final: {}-{})",
+                        completedSegment.team1(), completedSegment.team2(),
+                        completedSegment.score1(), completedSegment.score2());
 
-            historyService.recordMatchCompletion(completedSegment);
+                historyService.recordMatchCompletion(completedSegment);
+                meterRegistry.counter("match.events", "type", "completed").increment();
+            }
+
+            streamLinkCache.remove(matchId);
+            failureCount.remove(matchId);
+            lastUpdateTimes.remove(matchId);
+        } catch (final Exception e) {
+            log.error("Failed to handle completed match {}: {}", matchId, e.getMessage(), e);
+            meterRegistry.counter("match.processing", "status", "error", "type", "completion").increment();
         }
+    }
 
-        streamLinkCache.remove(matchId);
-        failureCount.remove(matchId);
+    private void scrapeStreamLinkAsync(final MatchSegment segment, final String matchId) {
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return streamLinkScraper.scrapeStreamLink(segment.match_page());
+                    } catch (final Exception e) {
+                        log.warn("Failed to scrape stream link for {}: {}", matchId, e.getMessage());
+                        meterRegistry.counter("stream.scraping", "status", "failed").increment();
+                        return null;
+                    }
+                }).thenAccept(streamLink -> {
+                    if (streamLink != null && !streamLink.isEmpty()) {
+                        streamLinkCache.put(matchId, streamLink);
+
+                        final MatchSegment currentSegment = liveMatches.get(matchId);
+
+                        if (currentSegment != null) {
+                            MatchSegment updatedSegment = currentSegment.withStreamLink(streamLink);
+                            liveMatches.put(matchId, updatedSegment);
+
+                            try {
+                                messagingTemplate.convertAndSend("/topic/matches", liveMatches.values());
+                                meterRegistry.counter("stream.scraping", "status", "success").increment();
+                            } catch (final Exception e) {
+                                log.warn("Failed to broadcast stream link update: {}", e.getMessage());
+                                meterRegistry.counter("websocket.broadcast", "status", "failed").increment();
+                            }
+                        }
+                    }
+                }).orTimeout(30, TimeUnit.SECONDS)
+                .exceptionally(ignored -> {
+                    log.warn("Stream link scraping timed out or failed for {}", matchId);
+                    meterRegistry.counter("stream.scraping", "status", "timeout").increment();
+                    return null;
+                });
+    }
+
+    private void broadcastUpdates() {
+        try {
+            messagingTemplate.convertAndSend("/topic/matches", liveMatches.values());
+            meterRegistry.counter("websocket.broadcast", "status", "success").increment();
+        } catch (Exception e) {
+            log.error("Failed to broadcast match updates: {}", e.getMessage(), e);
+            meterRegistry.counter("websocket.broadcast", "status", "failed").increment();
+        }
+    }
+
+    private void handleApiFailure() {
+        consecutiveFailures++;
+        isHealthy = consecutiveFailures < maxConsecutiveFailures;
+
+        log.warn("API failure #{} - Health status: {}", consecutiveFailures, isHealthy ? "DEGRADED" : "UNHEALTHY");
+
+        meterRegistry.counter("match.updates", "status", "failed").increment();
+
+        liveMatches.keySet().forEach(matchId ->
+                failureCount.merge(matchId, 1, Integer::sum));
+    }
+
+    private void handleUpdateException(final Exception e) {
+        consecutiveFailures++;
+        isHealthy = false;
+
+        log.error("Error during match update cycle #{}: {}", consecutiveFailures, e.getMessage(), e);
+        meterRegistry.counter("match.updates", "status", "exception").increment();
+    }
+
+    private void cleanupStaleData() {
+        final LocalDateTime cutoff = LocalDateTime.now().minusHours(1);
+
+        lastUpdateTimes.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+
+        final Set<String> staleMatches = failureCount.entrySet().stream()
+                .filter(entry -> entry.getValue() > 10)
+                .map(Map.Entry::getKey)
+                .filter(matchId -> {
+                    LocalDateTime lastUpdate = lastUpdateTimes.get(matchId);
+                    return lastUpdate == null || lastUpdate.isBefore(cutoff);
+                })
+                .collect(Collectors.toSet());
+
+        staleMatches.forEach(matchId -> {
+            log.warn("Removing stale match {}", matchId);
+            liveMatches.remove(matchId);
+            streamLinkCache.remove(matchId);
+            failureCount.remove(matchId);
+            meterRegistry.counter("match.cleanup", "type", "stale").increment();
+        });
+    }
+
+    private boolean hasSignificantChanges(final MatchSegment oldSegment, final MatchSegment newSegment) {
+        return hasScoreChanged(oldSegment, newSegment) ||
+                !Objects.equals(oldSegment.current_map(), newSegment.current_map()) ||
+                !Objects.equals(oldSegment.streamLink(), newSegment.streamLink()) ||
+                !Objects.equals(oldSegment.time_until_match(), newSegment.time_until_match());
     }
 
     private boolean hasScoreChanged(final MatchSegment oldSegment, final MatchSegment newSegment) {
-        return !oldSegment.score1().equals(newSegment.score1()) ||
-                !oldSegment.score2().equals(newSegment.score2()) ||
+        return !Objects.equals(oldSegment.score1(), newSegment.score1()) ||
+                !Objects.equals(oldSegment.score2(), newSegment.score2()) ||
                 !Objects.equals(oldSegment.team1_round_ct(), newSegment.team1_round_ct()) ||
                 !Objects.equals(oldSegment.team1_round_t(), newSegment.team1_round_t()) ||
                 !Objects.equals(oldSegment.team2_round_ct(), newSegment.team2_round_ct()) ||
@@ -158,10 +338,35 @@ public class MatchTrackingService {
     }
 
     public boolean isHealthy() {
-        return isHealthy && (System.currentTimeMillis() - lastUpdateTime) < 30000; // 30 seconds
+        final long timeSinceLastUpdate = System.currentTimeMillis() - lastUpdateTime;
+        return isHealthy && timeSinceLastUpdate < healthCheckThresholdMs;
     }
 
     public int getLiveMatchCount() {
         return liveMatches.size();
+    }
+
+    public Map<String, Object> getHealthDetails() {
+        return Map.of(
+                "isHealthy", isHealthy(),
+                "liveMatches", liveMatches.size(),
+                "consecutiveFailures", consecutiveFailures,
+                "lastSuccessfulUpdate", lastSuccessfulUpdate,
+                "timeSinceLastUpdate", System.currentTimeMillis() - lastUpdateTime
+        );
+    }
+
+    public void forceRefresh() {
+        log.info("Forcing manual refresh of match data");
+        meterRegistry.counter("match.operations", "type", "manual_refresh").increment();
+        updateMatches();
+    }
+
+    public void clearCache() {
+        log.info("Clearing all cached data");
+        streamLinkCache.clear();
+        failureCount.clear();
+        lastUpdateTimes.clear();
+        meterRegistry.counter("match.operations", "type", "cache_clear").increment();
     }
 }

@@ -1,3 +1,4 @@
+# docker-compose.yml - Production Configuration
 version: '3.8'
 
 services:
@@ -5,19 +6,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     container_name: spike-tracker-app
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8080}:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
-      - JAVA_OPTS=-Xmx512m -Xms256m
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-spiketracker}
+      - DATABASE_USERNAME=${POSTGRES_USER:-spiketracker}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD}
+      - JAVA_OPTS=-Xmx${MAX_MEMORY:-512m} -Xms${MIN_MEMORY:-256m}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
     networks:
       - spike-tracker-network
     logging:
@@ -25,8 +33,57 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    command: ["java", "-jar", "app.jar"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+    volumes:
+      - app-logs:/app/logs
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: spike-tracker-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-spiketracker}
+      - POSTGRES_USER=${POSTGRES_USER:-spiketracker}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spiketracker} -d ${POSTGRES_DB:-spiketracker}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - spike-tracker-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+
+volumes:
+  postgres_data:
+    driver: local
+  app-logs:
+    driver: local
 
 networks:
   spike-tracker-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

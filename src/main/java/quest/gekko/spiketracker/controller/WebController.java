@@ -21,6 +21,7 @@ import quest.gekko.spiketracker.model.match.MatchHistory;
 import quest.gekko.spiketracker.model.match.MatchSegment;
 import quest.gekko.spiketracker.service.MatchHistoryService;
 import quest.gekko.spiketracker.service.MatchTrackingService;
+import quest.gekko.spiketracker.util.InputValidator;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -34,16 +35,19 @@ public class WebController {
     private final MatchTrackingService matchTrackingService;
     private final MatchHistoryService matchHistoryService;
     private final MeterRegistry meterRegistry;
+    private final InputValidator inputValidator;
 
     @Value("${app.api.max-history-limit:100}")
     private int maxHistoryLimit;
 
     public WebController(final MatchTrackingService matchTrackingService,
                          final MatchHistoryService matchHistoryService,
-                         final MeterRegistry meterRegistry) {
+                         final MeterRegistry meterRegistry,
+                         final InputValidator inputValidator) {
         this.matchTrackingService = matchTrackingService;
         this.matchHistoryService = matchHistoryService;
         this.meterRegistry = meterRegistry;
+        this.inputValidator = inputValidator;
     }
 
     @GetMapping("/")
@@ -60,6 +64,40 @@ public class WebController {
             model.addAttribute("error", "Unable to load match data");
             return "error";
         }
+    }
+
+    @GetMapping("/robots.txt")
+    @ResponseBody
+    public ResponseEntity<String> robotsTxt() {
+        String robots = """
+            User-agent: *
+            Allow: /
+            
+            # Allow access to CSS, JS, and images
+            Allow: /css/
+            Allow: /js/
+            Allow: /images/
+            Allow: /favicon.ico
+            
+            # Allow API endpoints for legitimate crawling
+            Allow: /api/health
+            Allow: /api/matches
+            
+            # Disallow admin endpoints
+            Disallow: /api/admin/
+            Disallow: /actuator/
+            
+            # Disallow WebSocket endpoints
+            Disallow: /ws/
+            
+            # Crawl delay (1 second between requests)
+            Crawl-delay: 1
+            """;
+
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/plain")
+                .header("Cache-Control", "public, max-age=86400")
+                .body(robots);
     }
 
     @GetMapping("/api/matches")
@@ -83,18 +121,18 @@ public class WebController {
     @ResponseBody
     @Timed(value = "api.history.time", description = "Time taken to fetch match history")
     public ResponseEntity<ApiResponse<List<MatchHistory>>> matchHistory(
-            @RequestParam(defaultValue = "20")
-            @Min(value = 1, message = "Limit must be at least 1")
-            @Max(value = 100, message = "Limit cannot exceed 100")
-            final int limit) {
+            @RequestParam(defaultValue = "20") final Integer limit) {
         try {
             meterRegistry.counter("api.requests", "endpoint", "history").increment();
 
-            final int effectiveLimit = Math.min(limit, maxHistoryLimit);
-
-            final List<MatchHistory> history = matchHistoryService.getRecentCompletedMatches(effectiveLimit);
+            final int validatedLimit = inputValidator.validateLimit(limit, 20, maxHistoryLimit);
+            final List<MatchHistory> history = matchHistoryService.getRecentCompletedMatches(validatedLimit);
 
             return ResponseEntity.ok(ApiResponse.success(history, "Retrieved " + history.size() + " match history records"));
+        } catch (final IllegalArgumentException e) {
+            log.warn("Invalid limit parameter: {}", e.getMessage());
+            meterRegistry.counter("api.errors", "endpoint", "history", "type", "validation").increment();
+            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid limit parameter: " + e.getMessage()));
         } catch (final Exception e) {
             log.error("Error fetching match history: {}", e.getMessage(), e);
             meterRegistry.counter("api.errors", "endpoint", "history").increment();
@@ -108,30 +146,54 @@ public class WebController {
     @Timed(value = "api.team.matches.time", description = "Time taken to fetch team matches")
     public ResponseEntity<ApiResponse<List<MatchHistory>>> teamMatches(
             @PathVariable String teamName,
-            @RequestParam(defaultValue = "10")
-            @Min(value = 1, message = "Limit must be at least 1")
-            @Max(value = 50, message = "Limit cannot exceed 50")
-            final int limit) {
+            @RequestParam(defaultValue = "10") final Integer limit) {
         try {
             meterRegistry.counter("api.requests", "endpoint", "team-matches").increment();
 
-            if (teamName == null || teamName.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body(ApiResponse.error("Team name is required"));
-            }
+            final String sanitizedTeamName = inputValidator.validateAndSanitizeTeamName(teamName);
+            final int validatedLimit = inputValidator.validateLimit(limit, 10, 50);
 
-            final String sanitizedTeamName = teamName.trim().replaceAll("[^a-zA-Z0-9\\s-_]", "");
-            if (sanitizedTeamName.length() > 50) {
-                return ResponseEntity.badRequest().body(ApiResponse.error("Team name too long"));
-            }
+            final List<MatchHistory> matches = matchHistoryService.getMatchesForTeam(sanitizedTeamName, validatedLimit);
 
-            final List<MatchHistory> matches = matchHistoryService.getMatchesForTeam(sanitizedTeamName, limit);
-
-            return ResponseEntity.ok(ApiResponse.success(matches, "Retrieved " + matches.size() + " matches for team " + sanitizedTeamName));
-
+            return ResponseEntity.ok(ApiResponse.success(matches,
+                    "Retrieved " + matches.size() + " matches for team " + sanitizedTeamName));
+        } catch (final IllegalArgumentException e) {
+            log.warn("Invalid input for team matches - teamName: {}, error: {}", teamName, e.getMessage());
+            meterRegistry.counter("api.errors", "endpoint", "team-matches", "type", "validation").increment();
+            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid input: " + e.getMessage()));
         } catch (final Exception e) {
             log.error("Error fetching team matches for {}: {}", teamName, e.getMessage(), e);
             meterRegistry.counter("api.errors", "endpoint", "team-matches").increment();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error("Failed to retrieve team matches"));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to retrieve team matches"));
+        }
+    }
+
+    @GetMapping("/api/matches/search")
+    @ResponseBody
+    @Timed(value = "api.search.time", description = "Time taken to search matches")
+    public ResponseEntity<ApiResponse<List<MatchHistory>>> searchMatches(
+            @RequestParam final String query,
+            @RequestParam(defaultValue = "20") final Integer limit) {
+        try {
+            meterRegistry.counter("api.requests", "endpoint", "search").increment();
+
+            final String sanitizedQuery = inputValidator.validateSearchQuery(query);
+            final int validatedLimit = inputValidator.validateLimit(limit, 20, 100);
+
+            final List<MatchHistory> matches = matchHistoryService.getMatchesForTeam(sanitizedQuery, validatedLimit);
+
+            return ResponseEntity.ok(ApiResponse.success(matches,
+                    "Found " + matches.size() + " matches for query: " + sanitizedQuery));
+        } catch (final IllegalArgumentException e) {
+            log.warn("Invalid search query: {}, error: {}", query, e.getMessage());
+            meterRegistry.counter("api.errors", "endpoint", "search", "type", "validation").increment();
+            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid search query: " + e.getMessage()));
+        } catch (final Exception e) {
+            log.error("Error searching matches with query {}: {}", query, e.getMessage(), e);
+            meterRegistry.counter("api.errors", "endpoint", "search").increment();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Search failed"));
         }
     }
 
@@ -215,7 +277,8 @@ public class WebController {
         } catch (final Exception e) {
             log.error("Error during forced refresh: {}", e.getMessage(), e);
             meterRegistry.counter("api.errors", "endpoint", "admin-refresh").increment();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error("Failed to refresh match data"));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to refresh match data"));
         }
     }
 
@@ -229,7 +292,8 @@ public class WebController {
         } catch (final Exception e) {
             log.error("Error clearing cache: {}", e.getMessage(), e);
             meterRegistry.counter("api.errors", "endpoint", "admin-clear-cache").increment();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error("Failed to clear cache"));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to clear cache"));
         }
     }
 
@@ -240,11 +304,19 @@ public class WebController {
         return ResponseEntity.badRequest().body(ApiResponse.error("Invalid parameters: " + e.getMessage()));
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Object>> handleIllegalArgumentError(final IllegalArgumentException e) {
+        log.warn("Invalid argument: {}", e.getMessage());
+        meterRegistry.counter("api.errors", "type", "illegal_argument").increment();
+        return ResponseEntity.badRequest().body(ApiResponse.error("Invalid input: " + e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleGenericError(final Exception e) {
         log.error("Unexpected error in controller: {}", e.getMessage(), e);
         meterRegistry.counter("api.errors", "type", "generic").increment();
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error("An unexpected error occurred"));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("An unexpected error occurred"));
     }
 
     public record HealthStatus(
@@ -276,6 +348,5 @@ public class WebController {
         public static <T> ApiResponse<T> error(final String message) {
             return new ApiResponse<>(false, null, message);
         }
-
     }
 }

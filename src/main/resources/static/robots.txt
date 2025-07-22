@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+
+Allow: /css/
+Allow: /js/
+Allow: /images/
+Allow: /favicon.ico
+
+Allow: /api/health
+Allow: /api/matches
+
+Disallow: /api/admin/
+Disallow: /actuator/
+
+Disallow: /ws/
+
+Crawl-delay: 1

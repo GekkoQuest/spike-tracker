@@ -24,14 +24,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-    @Value("${app.security.allowed-origins:http://localhost:3000,http://localhost:8080}")
-    private String[] allowedOrigins;
 
     @Bean
     public SecurityFilterChain filterChain(final HttpSecurity http, final RateLimitingFilter rateLimitingFilter) throws Exception {
@@ -47,7 +46,7 @@ public class SecurityConfig {
                 )
 
                 .authorizeHttpRequests(authz -> authz
-                        .requestMatchers("/", "/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
+                        .requestMatchers("/", "/css/**", "/js/**", "/images/**", "/favicon.ico", "/robots.txt").permitAll()
                         .requestMatchers("/api/health", "/api/matches", "/api/matches/history").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
@@ -68,6 +67,10 @@ public class SecurityConfig {
                             response.setHeader("X-Content-Type-Options", "nosniff");
                             response.setHeader("X-XSS-Protection", "1; mode=block");
                             response.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+                            response.setHeader("X-Frame-Options", "DENY");
+                            response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+                            response.setHeader("Pragma", "no-cache");
+                            response.setHeader("Expires", "0");
                         })
                 )
 
@@ -95,8 +98,30 @@ public class SecurityConfig {
     @Component
     public static class RateLimitingFilter extends OncePerRequestFilter {
 
-        private final ConcurrentHashMap<String, LocalBucket> buckets = new ConcurrentHashMap<>();
+        private static class BucketEntry {
+            private final LocalBucket bucket;
+            private volatile LocalDateTime lastAccess;
+
+            public BucketEntry(LocalBucket bucket) {
+                this.bucket = bucket;
+                this.lastAccess = LocalDateTime.now();
+            }
+
+            public LocalBucket getBucket() {
+                this.lastAccess = LocalDateTime.now();
+                return bucket;
+            }
+
+            public boolean isExpired(Duration maxAge) {
+                return lastAccess.isBefore(LocalDateTime.now().minus(maxAge));
+            }
+        }
+
+        private final ConcurrentHashMap<String, BucketEntry> buckets = new ConcurrentHashMap<>();
         private final int requestsPerMinute;
+        private final Duration maxBucketAge = Duration.ofHours(1);
+
+        private static final int MAX_BUCKETS = 10000;
 
         public RateLimitingFilter(@Value("${app.security.rate-limit.requests-per-minute:60}") final int requestsPerMinute) {
             this.requestsPerMinute = requestsPerMinute;
@@ -112,20 +137,40 @@ public class SecurityConfig {
             }
 
             final String clientId = getClientIdentifier(request);
-            final LocalBucket bucket = buckets.computeIfAbsent(clientId, this::createBucket);
+            final LocalBucket bucket = getBucketForClient(clientId);
 
             if (bucket.tryConsume(1)) {
                 response.setHeader("X-RateLimit-Remaining", String.valueOf(bucket.getAvailableTokens()));
                 response.setHeader("X-RateLimit-Limit", String.valueOf(requestsPerMinute));
                 filterChain.doFilter(request, response);
             } else {
-                log.warn("Rate limit exceeded for client: {}", clientId);
+                log.warn("Rate limit exceeded for client: {} ({})", clientId, getAnonymizedIp(clientId));
                 response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
                 response.setHeader("X-RateLimit-Remaining", "0");
                 response.setHeader("X-RateLimit-Limit", String.valueOf(requestsPerMinute));
                 response.setHeader("Retry-After", "60");
-                response.getWriter().write("Rate limit exceeded. Please try again later.");
+                response.setContentType("application/json");
+                response.getWriter().write("{\"error\":\"Rate limit exceeded\",\"message\":\"Please try again later\"}");
             }
+        }
+
+        private LocalBucket getBucketForClient(final String clientId) {
+            return buckets.computeIfAbsent(clientId, this::createBucketEntry).getBucket();
+        }
+
+        private BucketEntry createBucketEntry(final String clientId) {
+            if (buckets.size() >= MAX_BUCKETS) {
+                log.warn("Maximum number of rate limit buckets reached ({}), forcing cleanup", MAX_BUCKETS);
+                cleanupExpiredBuckets();
+            }
+
+            final LocalBucket bucket = Bucket.builder()
+                    .addLimit(limit -> limit
+                            .capacity(requestsPerMinute)
+                            .refillIntervally(requestsPerMinute, Duration.ofMinutes(1)))
+                    .build();
+
+            return new BucketEntry(bucket);
         }
 
         private boolean shouldSkipRateLimiting(final String requestURI) {
@@ -133,33 +178,58 @@ public class SecurityConfig {
                     requestURI.startsWith("/js/") ||
                     requestURI.startsWith("/images/") ||
                     requestURI.equals("/favicon.ico") ||
+                    requestURI.equals("/robots.txt") ||
                     requestURI.equals("/api/health");
         }
 
         private String getClientIdentifier(final HttpServletRequest request) {
-            final String xForwardedFor = request.getHeader("X-Forwarded-For");
+            final String[] headerNames = {"X-Forwarded-For", "X-Real-IP", "X-Cluster-Client-IP", "CF-Connecting-IP"};
 
-            if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-                return xForwardedFor.split(",")[0].trim();
+            for (String headerName : headerNames) {
+                final String headerValue = request.getHeader(headerName);
+
+                if (headerValue != null && !headerValue.isEmpty() && !"unknown".equalsIgnoreCase(headerValue)) {
+                    final String[] ips = headerValue.split(",");
+                    final String ip = ips[0].trim();
+
+                    if (isValidIp(ip)) {
+                        return ip;
+                    }
+                }
             }
 
             return request.getRemoteAddr();
         }
 
-        private LocalBucket createBucket(final String clientId) {
-            return Bucket.builder()
-                    .addLimit(limit -> limit
-                            .capacity(requestsPerMinute)
-                            .refillIntervally(requestsPerMinute, Duration.ofMinutes(1)))
-                    .build();
+        private boolean isValidIp(String ip) {
+            return ip.matches("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$") ||
+                    ip.matches("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
         }
 
-        @Scheduled(fixedRate = 300000) // 5 minutes
-        public void cleanupBuckets() {
-            if (buckets.size() > 1000) {
-                log.info("Cleaning up {} rate limit buckets", buckets.size());
-                buckets.clear();
+        private String getAnonymizedIp(final String ip) {
+            if (ip.contains(".")) {
+                final String[] parts = ip.split("\\.");
+
+                if (parts.length == 4) {
+                    return parts[0] + "." + parts[1] + "." + parts[2] + ".xxx";
+                }
             }
+            return "xxx.xxx.xxx.xxx";
+        }
+
+        @Scheduled(fixedRate = 300000)
+        public void cleanupExpiredBuckets() {
+            final int initialSize = buckets.size();
+            buckets.entrySet().removeIf(entry -> entry.getValue().isExpired(maxBucketAge));
+            final int removed = initialSize - buckets.size();
+
+            if (removed > 0) {
+                log.info("Cleaned up {} expired rate limit buckets (remaining: {})", removed, buckets.size());
+            }
+        }
+
+        public int getBucketCount() {
+            return buckets.size();
         }
     }
 }

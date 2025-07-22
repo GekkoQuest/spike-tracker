@@ -17,8 +17,8 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -33,57 +33,65 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain filterChain(final HttpSecurity http, final RateLimitingFilter rateLimitingFilter) throws Exception {
+    public SecurityFilterChain filterChain(
+            final HttpSecurity http,
+            final RateLimitingFilter rateLimitingFilter,
+            @Value("${app.security.enable-hsts}") final boolean enableHsts,
+            @Value("${app.security.hsts-max-age}") final long hstsMaxAge) throws Exception {
         http
                 .csrf(csrf -> csrf
                         .ignoringRequestMatchers("/api/**", "/ws/**")
                 )
-
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                        .maximumSessions(1)
-                        .maxSessionsPreventsLogin(false)
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers("/", "/css/**", "/js/**", "/images/**", "/favicon.ico", "/robots.txt").permitAll()
-                        .requestMatchers("/api/health", "/api/matches", "/api/matches/history").permitAll()
+                        .requestMatchers("/api/health", "/api/matches", "/api/matches/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                        .requestMatchers("/actuator/**").hasRole("ADMIN") // Protect other actuator endpoints
+                        // .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
                 )
+                .headers(headers -> {
+                    headers
+                            .frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin)
+                            .contentTypeOptions(contentTypeOptions -> {})
+                            .addHeaderWriter(new ReferrerPolicyHeaderWriter(
+                                    ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN));
 
-                .headers(headers -> headers
-                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::deny)
-                        .contentTypeOptions(ignored -> {})
-                        .httpStrictTransportSecurity(hstsConfig -> hstsConfig
-                                .maxAgeInSeconds(31536000)
+                    if (enableHsts) {
+                        headers.httpStrictTransportSecurity(hstsConfig -> hstsConfig
+                                .maxAgeInSeconds(hstsMaxAge)
                                 .includeSubDomains(true)
-                        )
-                        .addHeaderWriter(new ReferrerPolicyHeaderWriter(
-                                ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
-                        .addHeaderWriter((request, response) -> {
-                            response.setHeader("X-Content-Type-Options", "nosniff");
-                            response.setHeader("X-XSS-Protection", "1; mode=block");
-                            response.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
-                            response.setHeader("X-Frame-Options", "DENY");
-                            response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-                            response.setHeader("Pragma", "no-cache");
-                            response.setHeader("Expires", "0");
-                        })
-                )
+                        );
+                    }
 
-                .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
+                    headers.addHeaderWriter((request, response) -> {
+                        response.setHeader("Content-Security-Policy",
+                                "default-src 'self'; " +
+                                        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
+                                        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                                        "font-src 'self' https://fonts.gstatic.com; " +
+                                        "img-src 'self' data: https://www.vlr.gg https://*.vlr.gg; " +
+                                        "connect-src 'self' https://vlrggapi.vercel.app"
+                        );
+                    });
+                })
+
+                .addFilterBefore(rateLimitingFilter, SecurityContextHolderAwareRequestFilter.class)
 
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((httpIgnored, response, authIgnored) -> {
+                        .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                            response.getWriter().write("Unauthorized");
+                            response.setContentType("application/json");
+                            response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Authentication required\"}");
                         })
-                        .accessDeniedHandler((request, response, ignored) -> {
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
                             response.setStatus(HttpStatus.FORBIDDEN.value());
-                            response.getWriter().write("Access Denied");
+                            response.setContentType("application/json");
+                            response.getWriter().write("{\"error\":\"Access Denied\",\"message\":\"Insufficient privileges\"}");
                         })
                 );
 

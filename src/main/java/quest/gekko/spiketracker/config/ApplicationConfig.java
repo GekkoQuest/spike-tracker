@@ -12,13 +12,11 @@ import org.springframework.boot.web.servlet.error.ErrorController;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
-import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Controller;
@@ -31,17 +29,16 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import quest.gekko.spiketracker.service.MatchTrackingService;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Configuration
@@ -82,7 +79,7 @@ public class ApplicationConfig implements WebMvcConfigurer {
                 .recordStats()
         );
 
-        cacheManager.setCacheNames(java.util.List.of(
+        cacheManager.setCacheNames(List.of(
                 "streamLinks", "matchHistory", "teamStats",
                 "healthStatus", "apiStats", "matchData"
         ));
@@ -141,8 +138,8 @@ public class ApplicationConfig implements WebMvcConfigurer {
             return createErrorResponse(HttpStatus.BAD_REQUEST, "Request validation failed", request);
         }
 
-        @ExceptionHandler(java.util.concurrent.TimeoutException.class)
-        public ResponseEntity<Map<String, Object>> handleTimeout(final java.util.concurrent.TimeoutException ex, final WebRequest request) {
+        @ExceptionHandler(TimeoutException.class)
+        public ResponseEntity<Map<String, Object>> handleTimeout(final TimeoutException ex, final WebRequest request) {
             log.error("Operation timeout: {}", ex.getMessage());
             meterRegistry.counter("errors", "type", "timeout").increment();
             return createErrorResponse(HttpStatus.REQUEST_TIMEOUT, "Operation timed out", request);

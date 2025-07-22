@@ -3,9 +3,7 @@
 [![Java](https://img.shields.io/badge/Java-21+-2ea44f)](#) 
 [![SpringBoot](https://img.shields.io/badge/Spring%20Boot-3.5.x-brightgreen)](#)
 [![Docker](https://img.shields.io/badge/Docker-supported-blue?logo=docker)](#)
-[![WebSocket](https://img.shields.io/badge/WebSocket-Real--time-orange)](#)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)](#)
-[![Prometheus](https://img.shields.io/badge/Monitoring-Prometheus-orange?logo=prometheus)](#)
 [![CI/CD Pipeline](https://github.com/GekkoQuest/spike-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/GekkoQuest/spike-tracker/actions/workflows/ci.yml)
 
 > **Real-Time Valorant Esports Match Tracker**

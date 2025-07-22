@@ -81,14 +81,17 @@ class SpikeTracker {
 
     async fetchMatches() {
         if (this.isConnected) {
-            return; // Don't poll if WebSocket is working
+            return;
         }
 
         try {
             const response = await fetch('/api/matches');
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-            const matches = await response.json();
+            const apiResponse = await response.json();
+
+            const matches = apiResponse.data || [];
+
             this.updateLiveMatches(matches);
             this.updateConnectionStatus('connected');
         } catch (error) {
@@ -102,10 +105,15 @@ class SpikeTracker {
             const response = await fetch('/api/matches/history');
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-            this.matchHistory = await response.json();
+            const apiResponse = await response.json();
+
+            this.matchHistory = apiResponse.data || [];
+
             this.renderHistory();
         } catch (error) {
             console.error('Failed to fetch match history:', error);
+            this.matchHistory = [];
+            this.renderHistory();
         }
     }
 

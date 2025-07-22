@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16
@@ -20,6 +21,8 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 5432:5432
 
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +34,15 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Make mvnw executable
+        run: chmod +x ./mvnw
+
       - name: Run tests
         run: ./mvnw clean verify
+        env:
+          DATABASE_URL: jdbc:postgresql://localhost:5432/testdb
+          DATABASE_USERNAME: postgres
+          DATABASE_PASSWORD: postgres
 
       - name: Build Docker image
         run: docker build -t spiketracker:latest .

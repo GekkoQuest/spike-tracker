@@ -476,7 +476,7 @@ body {
 
 .history-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
     gap: 20px;
 }
 
@@ -484,44 +484,141 @@ body {
     background: var(--card-bg);
     border-radius: var(--border-radius);
     border: 1px solid var(--border-color);
-    padding: 20px;
+    overflow: hidden;
     transition: all 0.3s ease;
+    position: relative;
+}
+
+.history-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--success-color), #66bb6a);
 }
 
 .history-card:hover {
     transform: translateY(-3px);
     box-shadow: var(--shadow);
-    border-color: rgba(255, 107, 53, 0.3);
+    border-color: rgba(76, 175, 80, 0.3);
 }
 
 .history-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 15px;
-}
-
-.history-teams {
-    font-weight: 600;
-    color: var(--text-primary);
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
 }
 
 .history-time {
     color: var(--text-muted);
     font-size: 0.8rem;
+    margin-bottom: 5px;
+}
+
+.history-event {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.history-teams {
+    padding: 25px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.history-team {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    max-width: 140px;
+}
+
+.history-team-logo {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    margin-bottom: 12px;
+    border: 2px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.history-team-logo:hover {
+    border-color: var(--success-color);
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.3);
+}
+
+.history-team-name {
+    font-weight: 700;
+    font-size: 1rem;
+    text-align: center;
+    margin-bottom: 5px;
+    color: var(--text-primary);
+}
+
+.history-team-country {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.history-vs-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0 20px;
+}
+
+.history-vs-text {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 8px;
 }
 
 .history-score {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: var(--accent-color);
-    margin-bottom: 10px;
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--success-color);
+    text-shadow: 0 0 15px rgba(76, 175, 80, 0.3);
+    margin-bottom: 5px;
+}
+
+.history-winner {
+    color: var(--success-color);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-align: center;
 }
 
 .history-details {
+    padding: 15px 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.history-detail-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+}
+
+.history-detail-label {
     color: var(--text-secondary);
-    font-size: 0.9rem;
-    line-height: 1.4;
+    font-weight: 600;
+}
+
+.history-detail-value {
+    color: var(--text-primary);
+    font-weight: 500;
 }
 
 .no-matches {
@@ -565,25 +662,25 @@ body {
         font-size: 2.5rem;
     }
 
-    .matches-grid {
+    .matches-grid, .history-grid {
         grid-template-columns: 1fr;
         gap: 20px;
     }
 
-    .match-teams {
+    .match-teams, .history-teams {
         padding: 20px 15px;
     }
 
-    .team {
+    .team, .history-team {
         max-width: 120px;
     }
 
-    .team-logo {
+    .team-logo, .history-team-logo {
         width: 50px;
         height: 50px;
     }
 
-    .score {
+    .score, .history-score {
         font-size: 2rem;
     }
 
@@ -595,9 +692,37 @@ body {
     .nav-tabs {
         flex-direction: column;
     }
+}
 
-    .history-grid {
-        grid-template-columns: 1fr;
+@media (max-width: 480px) {
+    .title {
+        font-size: 2rem;
+    }
+
+    .match-teams, .history-teams {
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .vs-section, .history-vs-section {
+        margin: 0;
+        order: -1;
+    }
+
+    .score, .history-score {
+        font-size: 1.8rem;
+    }
+
+    .team, .history-team {
+        max-width: none;
+        flex-direction: row;
+        gap: 15px;
+    }
+
+    .team-logo, .history-team-logo {
+        width: 40px;
+        height: 40px;
+        margin-bottom: 0;
     }
 }
 

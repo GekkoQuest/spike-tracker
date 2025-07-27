@@ -226,7 +226,8 @@ public class MatchHistoryService {
                 entity.getCompletedAt(),
                 entity.getMatchPage(),
                 entity.getStreamLink(),
-                entity.getDurationMinutes() != null ? entity.getDurationMinutes() : 0
+                entity.getDurationMinutes() != null ? entity.getDurationMinutes() : 0,
+                entity.getWinner()
         );
     }
 }

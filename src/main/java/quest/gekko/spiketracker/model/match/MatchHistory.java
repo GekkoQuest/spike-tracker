@@ -7,8 +7,8 @@ public record MatchHistory(
         String team2,
         String flag1,
         String flag2,
-        String team1_logo,
-        String team2_logo,
+        String team1Logo,
+        String team2Logo,
         String finalScore1,
         String finalScore2,
         String match_event,
@@ -17,5 +17,6 @@ public record MatchHistory(
         LocalDateTime completedAt,
         String match_page,
         String streamLink,
-        long durationMinutes
+        long durationMinutes,
+        String winner
 ) { }

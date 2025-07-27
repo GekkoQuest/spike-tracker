@@ -74,7 +74,7 @@ public class SecurityConfig {
                                         "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
                                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                                         "font-src 'self' https://fonts.gstatic.com; " +
-                                        "img-src 'self' data: https://www.vlr.gg https://*.vlr.gg; " +
+                                        "img-src 'self' data: https://www.vlr.gg https://*.vlr.gg https://owcdn.net https://*.owcdn.net; " +
                                         "connect-src 'self' https://vlrggapi.vercel.app"
                         );
                     });

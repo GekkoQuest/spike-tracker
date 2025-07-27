@@ -353,29 +353,54 @@ class SpikeTracker {
     createHistoryCard(match) {
         const winner = match.winner || 'Unknown';
         const completedTime = new Date(match.completedAt).toLocaleString();
+        const team1Logo = this.getValidImageUrl(match.team1Logo);
+        const team2Logo = this.getValidImageUrl(match.team2Logo);
 
         return `
-            <div class="history-card">
-                <div class="history-header">
-                    <div class="history-teams">
-                        ${this.getCountryName(match.flag1)} ${this.escapeHtml(match.team1)} vs 
-                        ${this.escapeHtml(match.team2)} ${this.getCountryName(match.flag2)}
+        <div class="history-card">
+            <div class="history-header">
+                <div class="history-time">${completedTime}</div>
+                <div class="history-event">${this.escapeHtml(match.match_event || 'Unknown Event')}</div>
+            </div>
+            
+            <div class="history-teams">
+                <div class="history-team">
+                    <img src="${team1Logo}" alt="${this.escapeHtml(match.team1)}" class="history-team-logo" 
+                         onerror="this.src='${this.defaultTeamImage}'; this.onerror=null;">
+                    <div class="history-team-name">${this.escapeHtml(match.team1)}</div>
+                    <div class="history-team-country">${this.getCountryName(match.flag1)}</div>
+                </div>
+                
+                <div class="history-vs-section">
+                    <div class="history-vs-text">VS</div>
+                    <div class="history-score">
+                        ${match.finalScore1} - ${match.finalScore2}
                     </div>
-                    <div class="history-time">${completedTime}</div>
+                    ${winner !== 'Unknown' && winner !== 'Draw' ? `<div class="history-winner">🏆 ${this.escapeHtml(winner)}</div>` : ''}
                 </div>
                 
-                <div class="history-score">
-                    ${match.finalScore1} - ${match.finalScore2}
-                    ${winner !== 'Unknown' && winner !== 'Draw' ? `<span style="color: var(--success-color); font-size: 0.8em;">🏆 ${this.escapeHtml(winner)}</span>` : ''}
-                </div>
-                
-                <div class="history-details">
-                    <div><strong>Event:</strong> ${this.escapeHtml(match.match_event)}</div>
-                    <div><strong>Map:</strong> ${this.escapeHtml(match.current_map || 'Unknown')}</div>
-                    ${match.durationMinutes > 0 ? `<div><strong>Duration:</strong> ${match.durationMinutes} minutes</div>` : ''}
+                <div class="history-team">
+                    <img src="${team2Logo}" alt="${this.escapeHtml(match.team2)}" class="history-team-logo"
+                         onerror="this.src='${this.defaultTeamImage}'; this.onerror=null;">
+                    <div class="history-team-name">${this.escapeHtml(match.team2)}</div>
+                    <div class="history-team-country">${this.getCountryName(match.flag2)}</div>
                 </div>
             </div>
-        `;
+            
+            <div class="history-details">
+                <div class="history-detail-item">
+                    <span class="history-detail-label">Map:</span>
+                    <span class="history-detail-value">${this.escapeHtml(match.current_map || 'Unknown')}</span>
+                </div>
+                ${match.durationMinutes > 0 ? `
+                    <div class="history-detail-item">
+                        <span class="history-detail-label">Duration:</span>
+                        <span class="history-detail-value">${match.durationMinutes} minutes</span>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
     }
 
     getCountryName(countryCode) {

@@ -3,17 +3,20 @@ package quest.gekko.spiketracker.service;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import quest.gekko.spiketracker.model.match.LiveMatchData;
 import quest.gekko.spiketracker.model.match.MatchSegment;
 import quest.gekko.spiketracker.service.api.VlrggMatchApiClient;
 import quest.gekko.spiketracker.util.StreamLinkScraper;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -22,6 +25,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -33,6 +37,8 @@ public class MatchTrackingService {
     private final SimpMessagingTemplate messagingTemplate;
     private final StreamLinkScraper streamLinkScraper;
     private final MeterRegistry meterRegistry;
+    private final AdaptivePollingService adaptivePolling;
+    private final TaskScheduler taskScheduler;
 
     private final int maxConsecutiveFailures;
     private final long healthCheckThresholdMs;
@@ -49,9 +55,11 @@ public class MatchTrackingService {
     private long lastUpdateTime = System.currentTimeMillis();
 
     private boolean isHealthy = true;
-
     private int consecutiveFailures = 0;
     private LocalDateTime lastSuccessfulUpdate = LocalDateTime.now();
+
+    private ScheduledFuture<?> scheduledTask;
+    private volatile boolean isShuttingDown = false;
 
     public MatchTrackingService(
             final VlrggMatchApiClient apiClient,
@@ -59,6 +67,8 @@ public class MatchTrackingService {
             final SimpMessagingTemplate messagingTemplate,
             final StreamLinkScraper streamLinkScraper,
             final MeterRegistry meterRegistry,
+            final AdaptivePollingService adaptivePolling,
+            final TaskScheduler taskScheduler,
             @Value("${app.match-tracking.max-consecutive-failures:5}") final int maxConsecutiveFailures,
             @Value("${app.match-tracking.health-check-threshold-ms:60000}") final long healthCheckThresholdMs,
             @Value("${app.match-tracking.enable-stream-scraping:true}") final boolean enableStreamScraping) {
@@ -68,6 +78,8 @@ public class MatchTrackingService {
         this.messagingTemplate = messagingTemplate;
         this.streamLinkScraper = streamLinkScraper;
         this.meterRegistry = meterRegistry;
+        this.adaptivePolling = adaptivePolling;
+        this.taskScheduler = taskScheduler;
         this.maxConsecutiveFailures = maxConsecutiveFailures;
         this.healthCheckThresholdMs = healthCheckThresholdMs;
         this.enableStreamScraping = enableStreamScraping;
@@ -77,7 +89,58 @@ public class MatchTrackingService {
                 .register(meterRegistry);
     }
 
-    @Scheduled(fixedRateString = "${app.match-tracking.update-interval:5000}")
+    @PostConstruct
+    public void startAdaptivePolling() {
+        log.info("Starting adaptive polling for match tracking");
+        scheduleNextUpdate();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down match tracking service");
+        isShuttingDown = true;
+
+        if (scheduledTask != null && !scheduledTask.isCancelled()) {
+            scheduledTask.cancel(false);
+            log.info("Cancelled scheduled polling task");
+        }
+    }
+
+    private void scheduleNextUpdate() {
+        if (isShuttingDown) {
+            return;
+        }
+
+        if (scheduledTask != null && !scheduledTask.isCancelled()) {
+            scheduledTask.cancel(false);
+        }
+
+        final boolean hasMatches = !liveMatches.isEmpty();
+        final int interval = adaptivePolling.getNextInterval(hasMatches);
+
+        scheduledTask = taskScheduler.schedule(
+                this::updateMatchesAndReschedule,
+                Instant.now().plusMillis(interval)
+        );
+
+        if (hasMatches) {
+            log.debug("Active polling - {} live matches, next update in {} seconds", liveMatches.size(), interval / 1000);
+        } else {
+            log.debug("Idle polling mode: {}, next update in {} seconds", adaptivePolling.getPollingMode(), interval / 1000);
+        }
+
+        meterRegistry.gauge("match.polling.interval", interval);
+        meterRegistry.gauge("match.polling.hourly_operations", adaptivePolling.calculateHourlyDbConnections());
+    }
+
+    private void updateMatchesAndReschedule() {
+        try {
+            updateMatches();
+        } finally {
+            scheduleNextUpdate();
+        }
+    }
+
     public void updateMatches() {
         final Timer.Sample sample = Timer.start();
 
@@ -98,6 +161,14 @@ public class MatchTrackingService {
             isHealthy = true;
 
             meterRegistry.counter("match.updates", "status", "success").increment();
+
+            // final String currentMode = adaptivePolling.getPollingMode();
+            if (currentMatches.isEmpty() && adaptivePolling.getConsecutiveEmptyPolls() == 1) {
+                log.info("No live matches found, switching to idle polling");
+            } else if (!currentMatches.isEmpty() && adaptivePolling.getConsecutiveEmptyPolls() > 0) {
+                log.info("Live matches resumed ({} matches), switching to active polling", currentMatches.size());
+            }
+
         } catch (final Exception e) {
             handleUpdateException(e);
         } finally {
@@ -174,6 +245,11 @@ public class MatchTrackingService {
             failureCount.remove(matchId);
 
             meterRegistry.counter("match.events", "type", "new").increment();
+
+            if (liveMatches.size() == 1) {
+                log.info("First live match detected, resetting to active polling");
+                adaptivePolling.reset();
+            }
         } catch (final Exception e) {
             log.error("Failed to handle new match {}: {}", matchId, e.getMessage(), e);
             meterRegistry.counter("match.processing", "status", "error", "type", "new_match").increment();
@@ -352,14 +428,26 @@ public class MatchTrackingService {
                 "liveMatches", liveMatches.size(),
                 "consecutiveFailures", consecutiveFailures,
                 "lastSuccessfulUpdate", lastSuccessfulUpdate,
-                "timeSinceLastUpdate", System.currentTimeMillis() - lastUpdateTime
+                "timeSinceLastUpdate", System.currentTimeMillis() - lastUpdateTime,
+                "pollingMode", adaptivePolling.getPollingMode(),
+                "currentPollingInterval", adaptivePolling.getCurrentInterval(),
+                "consecutiveEmptyPolls", adaptivePolling.getConsecutiveEmptyPolls(),
+                "estimatedHourlyDbConnections", adaptivePolling.calculateHourlyDbConnections()
         );
     }
 
     public void forceRefresh() {
         log.info("Forcing manual refresh of match data");
         meterRegistry.counter("match.operations", "type", "manual_refresh").increment();
+
+        adaptivePolling.reset();
+
+        if (scheduledTask != null && !scheduledTask.isCancelled()) {
+            scheduledTask.cancel(false);
+        }
+
         updateMatches();
+        scheduleNextUpdate();
     }
 
     public void clearCache() {
@@ -367,6 +455,9 @@ public class MatchTrackingService {
         streamLinkCache.clear();
         failureCount.clear();
         lastUpdateTimes.clear();
+
+        adaptivePolling.reset();
+
         meterRegistry.counter("match.operations", "type", "cache_clear").increment();
     }
 }

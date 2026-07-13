@@ -1,29 +1,32 @@
-# ===== Stage 1: Build =====
-FROM maven:3.9.6-eclipse-temurin-21 AS builder
+# syntax=docker/dockerfile:1
+FROM node:24.18-alpine AS frontend-build
+WORKDIR /build/frontend
+COPY frontend/package*.json ./
+RUN --mount=type=cache,target=/root/.npm npm install --global npm@12.0.1 && npm ci
+COPY frontend/ ./
+RUN npm run build
 
-WORKDIR /app
+FROM python:3.14.6-slim AS python-base
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPYCACHEPREFIX=/tmp/pycache \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app/backend
+RUN addgroup --system app && adduser --system --ingroup app app
+COPY backend/ ./
+RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir .
 
-COPY . .
-RUN chmod +x mvnw
-RUN ./mvnw clean package -DskipTests
+FROM python-base AS development
+RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir '.[dev]'
+USER app
+EXPOSE 8000
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
 
-# ===== Stage 2: Runtime =====
-FROM eclipse-temurin:21-jre-alpine
-
-WORKDIR /app
-
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
-
-COPY --from=builder /app/target/spike-tracker-*.jar app.jar
-
-COPY --from=builder /app/src/main/resources/application*.properties /app/
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD wget -q --spider http://localhost:8080/api/health || exit 1
-
+FROM python-base AS production
+RUN chown -R app:app /app/backend
+COPY --from=frontend-build --chown=app:app /build/frontend/dist /app/static
+USER app
 EXPOSE 8080
-
-ENV SPRING_PROFILES_ACTIVE=prod
-
-ENTRYPOINT ["sh", "-c", "exec java -Dspring.profiles.active=$SPRING_PROFILES_ACTIVE -Dserver.port=$PORT -jar app.jar"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health', timeout=3)"
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --proxy-headers --forwarded-allow-ips='*'"]

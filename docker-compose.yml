@@ -1,89 +1,53 @@
-# docker-compose.yml - Production Configuration
-version: '3.8'
+name: spike-tracker
 
 services:
-  spike-tracker:
+  app:
     build:
       context: .
-      dockerfile: Dockerfile
       target: production
-    container_name: spike-tracker-app
+    image: spike-tracker:2.0
     ports:
       - "${APP_PORT:-8080}:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=prod
-      - DATABASE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-spiketracker}
-      - DATABASE_USERNAME=${POSTGRES_USER:-spiketracker}
-      - DATABASE_PASSWORD=${POSTGRES_PASSWORD}
-      - JAVA_OPTS=-Xmx${MAX_MEMORY:-512m} -Xms${MIN_MEMORY:-256m}
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-spiketracker}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-spiketracker}
+      VLR_API_URL: ${VLR_API_URL:-https://vlr.orlandomm.net}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-*}
+      ADMIN_KEY: ${ADMIN_KEY:-}
+      DEMO_MODE: "false"
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - spike-tracker-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    security_opt:
-      - no-new-privileges:true
-    read_only: false
-    tmpfs:
-      - /tmp
-    volumes:
-      - app-logs:/app/logs
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: spike-tracker-postgres
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-spiketracker}
-      - POSTGRES_USER=${POSTGRES_USER:-spiketracker}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spiketracker} -d ${POSTGRES_DB:-spiketracker}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - spike-tracker-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "3"
-    security_opt:
-      - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run/postgresql
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-spiketracker}
+      POSTGRES_USER: ${POSTGRES_USER:-spiketracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spiketracker} -d ${POSTGRES_DB:-spiketracker}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
-  postgres_data:
-    driver: local
-  app-logs:
-    driver: local
-
-networks:
-  spike-tracker-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+  postgres-data:

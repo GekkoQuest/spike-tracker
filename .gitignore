@@ -1,33 +1,31 @@
-HELP.md
-target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+# Local configuration
+.env
+.env.*
+!.env.example
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
+# Python — caches are redirected to /tmp in Docker as well
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.coverage
+**/htmlcov/
+**/.venv/
+**/venv/
+**/*.egg-info/
+backend/.data/
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
+# Frontend
+**/node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
+# Editors and operating systems
+.claude/
+.idea/
 .vscode/
+*.iml
+.DS_Store
+Thumbs.db

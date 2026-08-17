@@ -6,7 +6,7 @@ RUN --mount=type=cache,target=/root/.npm npm install --global npm@12.0.1 && npm 
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.14.6-slim AS python-base
+FROM python:3.14.7-slim AS python-base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPYCACHEPREFIX=/tmp/pycache \

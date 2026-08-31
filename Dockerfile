@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24.18-alpine AS frontend-build
+FROM node:26.8-alpine AS frontend-build
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm install --global npm@12.0.1 && npm ci
